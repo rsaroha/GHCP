@@ -25,6 +25,7 @@
 *.la
 *.a
 *.lib
+*.pdb
 
 # Executables
 *.exe
@@ -33,3 +34,5 @@
 # Ignore all build folders
 */build/*
 */.vs/*
+# Ignore all swap files 
+.*.swp

@@ -1,0 +1,5 @@
+D:\programming\git_rsaroha\GHCP\opengl-outline\bin\Debug\shaders\cube.vert
+D:\programming\git_rsaroha\GHCP\opengl-outline\bin\Debug\shaders\cube.frag
+D:\programming\git_rsaroha\GHCP\opengl-outline\bin\Debug\shaders\fullscreen.vert
+D:\programming\git_rsaroha\GHCP\opengl-outline\bin\Debug\shaders\outline.frag
+D:\programming\git_rsaroha\GHCP\opengl-outline\bin\Debug\shaders\present.frag
