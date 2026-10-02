@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(if \\(!\\(Test-Path \"D:\\\\programming\\\\claude\\\\third_party\"\\)\\) { New-Item -ItemType Directory -Path \"D:\\\\programming\\\\claude\\\\third_party\" -Force })",
+      "PowerShell(& \"C:\\\\vcpkg\\\\vcpkg\" install --triplet x64-windows glfw3 imgui tinyexr)",
+      "WebFetch(domain:raw.githubusercontent.com)"
+    ]
+  }
+}

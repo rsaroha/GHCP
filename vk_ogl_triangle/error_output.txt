@@ -1,0 +1,9 @@
+[VK] vkCreateDevice(): pCreateInfo->enabledLayerCount is 1 (not zero).
+Device Layers have never worked since Vulkan 1.0 and only Instance Layers should be used instead: https://docs.vulkan.org/spec/latest/appendices/legacy.html#legacy-devicelayers.
+The Vulkan spec states: enabledLayerCount must be 0 (https://docs.vulkan.org/spec/latest/chapters/devsandqueues.html#VUID-VkDeviceCreateInfo-enabledLayerCount-12384)
+[VK] vkCreateGraphicsPipelines(): pCreateInfos[0].layout is not a valid VkPipelineLayout, but defines a complete set of state.
+The Vulkan spec states: If VkPipelineCreateFlags2CreateInfoKHR::flags does not include VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT, the pipeline includes a complete set of state, and there are no libraries included in VkPipelineLibraryCreateInfoKHR::pLibraries, then VkPipelineLayout must be a valid pipeline layout (https://docs.vulkan.org/spec/latest/chapters/pipelines.html#VUID-VkGraphicsPipelineCreateInfo-None-07826)
+[VK] vkCreateGraphicsPipelines(): pCreateInfos[0].layout is not a valid VkPipelineLayout.
+The Vulkan spec states: If the pipeline requires fragment shader state or pre-rasterization shader state, and VkPipelineCreateFlags2CreateInfoKHR::flags does not include VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT, layout must be a valid VkPipelineLayout handle (https://docs.vulkan.org/spec/latest/chapters/pipelines.html#VUID-VkGraphicsPipelineCreateInfo-layout-06602)
+[VK] vkCreateGraphicsPipelines(): pCreateInfos[0].pColorBlendState->pAttachments[1] is different than pAttachments[0] and independentBlend feature was not enabled.
+The Vulkan spec states: If the independentBlend feature is not enabled, all elements of pAttachments must be identical (https://docs.vulkan.org/spec/latest/chapters/framebuffer.html#VUID-VkPipelineColorBlendStateCreateInfo-pAttachments-00605)
