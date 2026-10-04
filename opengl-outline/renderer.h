@@ -17,11 +17,11 @@ void Renderer_Render(void);
 void Renderer_Shutdown(void);
 void Renderer_Present(void);
 void Renderer_SetBackgroundColor(float red, float green, float blue);
+void Renderer_SetOutlineImplementation(int implementation);
+void Renderer_SetOutlineThickness(float pixels);
+void Renderer_SetMsaaEnabled(bool enabled);
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
 bool CreateOpenGLWindow(HINSTANCE instance);
-
-
-
 
 
 

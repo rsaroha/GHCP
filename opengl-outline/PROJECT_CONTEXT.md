@@ -76,12 +76,15 @@ All shader source is external and loaded at runtime:
   - No fullscreen VAO-specific vertex data is required.
 
 - `shaders/outline.frag`
-  - Samples the main color texture.
-  - Reads the stencil texture with `texelFetch`.
-  - Checks a square neighborhood from `-4` through `+4` pixels in X and Y.
-  - A pixel outside the stencil region becomes red if any neighbor contains stencil value `1`.
-  - Current color is `vec3(1.0, 0.0, 0.0)`.
-  - Current width is controlled by the hard-coded loop bounds `-4` and `4`.
+  - Contains selectable non-JFA outline implementations.
+  - `Brute-force`: 9x9 stencil neighborhood search.
+  - `Cross kernel`: horizontal + vertical stencil neighborhood search.
+- `shaders/jfa_seed.frag`
+  - Initializes jump-flood seeds from stencil-marked pixels.
+- `shaders/jfa_step.frag`
+  - Executes one jump-flood propagation step over the seed buffer.
+- `shaders/jfa_compose.frag`
+  - Composites scene color with an outline using the final jump-flood result.
 
 - `shaders/present.frag`
   - Copies the outline FBO texture to the default framebuffer.
@@ -123,13 +126,9 @@ The main FBO contains:
 - `g_colorTexture`: `GL_RGBA8` color texture.
 - `g_depthTexture`: `GL_DEPTH24_STENCIL8` texture attached as `GL_DEPTH_STENCIL_ATTACHMENT`.
 
-The depth-stencil texture is configured with:
-
-- `GL_DEPTH_STENCIL_TEXTURE_MODE`
-- `GL_STENCIL_INDEX`
-- `GL_NEAREST` filtering
-
-The stencil component is sampled in `outline.frag`.
+The packed depth-stencil texture uses `GL_NEAREST` filtering and
+`GL_DEPTH_STENCIL_TEXTURE_MODE = GL_STENCIL_INDEX`, so sampling it in
+`outline.frag` returns stencil data.
 
 ### Outline framebuffer
 
@@ -159,7 +158,7 @@ It has no depth/stencil attachment because it only receives the fullscreen compo
 11. Render a fullscreen triangle using `outline.frag`.
 12. Bind:
     - Texture unit 0: `g_colorTexture`
-    - Texture unit 1: `g_depthTexture`
+    - Texture unit 1: `g_depthTexture` (stencil component)
 13. Set:
     - `sceneColor = 0`
     - `stencilMask = 1`
@@ -212,6 +211,16 @@ Win32 mouse messages are first sent to ImGui. If ImGui captures the mouse, model
 - The project includes ImGui core and Win32/OpenGL3 backend source files directly.
 - The UI intentionally has no help text or extra controls.
 - The only control is a background color label and color button.
+- The UI also includes buttons to switch outline implementation:
+  - `Brute-force` (9x9 neighborhood)
+  - `Cross kernel` (horizontal + vertical neighborhood)
+  - `Jump flood` (multi-pass jump-flood distance propagation)
+- The UI includes an `Outline thickness (px)` slider (1..32) that is sent to
+  outline shaders.
+- The UI includes an `MSAA x8` checkbox. When enabled, the main scene renders
+  into multisampled color + depth-stencil textures and is resolved into the
+  single-sample main FBO before outline passes.
+- The UI shows live performance text: `FPS` and `ms/frame`.
 - The default background is white: `(1.0, 1.0, 1.0)`.
 
 ## Build and verification
@@ -260,7 +269,7 @@ The project has been repeatedly verified with successful Debug x86 builds and la
 - Cube VAO and VBO.
 - Cube, outline, and presentation shader programs.
 - Main and outline framebuffer objects.
-- Main color, depth-stencil, and outline textures.
+- Main color, packed depth-stencil, and outline textures.
 
 `Renderer_Resize()` recreates both framebuffer targets through `CreateRenderTarget()`.
 
@@ -278,7 +287,7 @@ If framebuffer resources are changed, update all of:
 - The neighborhood is square (`9 x 9` samples), so the visual shape is a square-radius expansion rather than an exact Euclidean-radius outline.
 - The outline color is hard-coded red.
 - The outline is generated from the visible stencil mask and therefore outlines the visible silhouette, not hidden/back-facing geometry.
-- The stencil texture sampling path depends on the OpenGL driver supporting depth-stencil texture sampling with `GL_DEPTH_STENCIL_TEXTURE_MODE = GL_STENCIL_INDEX`.
+- The stencil texture sampling path depends on the OpenGL driver supporting packed depth-stencil texture sampling with `GL_DEPTH_STENCIL_TEXTURE_MODE = GL_STENCIL_INDEX`.
 - The color picker changes the scene background but the current outline color is independent of the background color.
 - Shader loading errors are shown with a Win32 message box.
 - Shader compilation and program-link errors are also shown with a Win32 message box.
@@ -286,6 +295,8 @@ If framebuffer resources are changed, update all of:
 
 ## Safe change guidelines
 
+- Keep project-owned C++ functions non-inline and format braces in Allman/BSD style,
+  with opening braces on the following line.
 - Preserve the OpenGL 3.3 compatibility profile unless there is an explicit design change.
 - Keep shader interfaces synchronized with uniform lookups in `renderer.cpp`.
 - If changing `outline.frag`, remember that the stencil texture is read with integer coordinates and `texelFetch`.

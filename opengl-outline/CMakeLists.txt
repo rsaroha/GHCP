@@ -6,6 +6,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(MSVC AND WIN32 AND CMAKE_SIZEOF_VOID_P LESS 8)
+    message(FATAL_ERROR
+        "OpenGLOutline requires a 64-bit generator configuration. "
+        "Configure with: cmake -S . -B build -A x64")
+endif()
+
 set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/imgui"
     CACHE PATH "Path to the Dear ImGui source directory")
 
@@ -33,6 +39,9 @@ set(SHADER_FILES
     shaders/cube.frag
     shaders/fullscreen.vert
     shaders/outline.frag
+    shaders/jfa_seed.frag
+    shaders/jfa_step.frag
+    shaders/jfa_compose.frag
     shaders/present.frag
 )
 
@@ -40,6 +49,12 @@ add_executable(OpenGLOutline WIN32
     ${APP_SOURCES}
     ${IMGUI_SOURCES}
     ${SHADER_FILES}
+)
+
+set_target_properties(OpenGLOutline PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/$<CONFIG>"
 )
 
 target_include_directories(OpenGLOutline PRIVATE

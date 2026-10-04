@@ -4,6 +4,7 @@
 #include <math.h>
 #include <fstream>
 #include <iterator>
+#include <stdio.h>
 #include <string>
 
 #pragma comment(lib, "opengl32.lib")
@@ -19,6 +20,8 @@
 #define GL_LINK_STATUS 0x8B82
 #define GL_INFO_LOG_LENGTH 0x8B84
 #define GL_FRAMEBUFFER 0x8D40
+#define GL_READ_FRAMEBUFFER 0x8CA8
+#define GL_DRAW_FRAMEBUFFER 0x8CA9
 #define GL_COLOR_ATTACHMENT0 0x8CE0
 #define GL_DEPTH_ATTACHMENT 0x8D00
 #define GL_DEPTH_STENCIL_ATTACHMENT 0x821A
@@ -33,6 +36,14 @@
 #define GL_KEEP 0x1E00
 #define GL_REPLACE 0x1E01
 #define GL_FRAMEBUFFER_COMPLETE 0x8CD5
+#define GL_FRAMEBUFFER_UNDEFINED 0x8219
+#define GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT 0x8CD6
+#define GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT 0x8CD7
+#define GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER 0x8CDB
+#define GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER 0x8CDC
+#define GL_FRAMEBUFFER_UNSUPPORTED 0x8CDD
+#define GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE 0x8D56
+#define GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS 0x8DA8
 #define GL_TEXTURE0 0x84C0
 #define GL_TEXTURE_MIN_FILTER 0x2801
 #define GL_TEXTURE_MAG_FILTER 0x2800
@@ -40,12 +51,17 @@
 #define GL_TEXTURE_WRAP_T 0x2803
 #define GL_CLAMP_TO_EDGE 0x812F
 #define GL_RGBA8 0x8058
+#define GL_RGBA32F 0x8814
 #define GL_DEPTH_COMPONENT24 0x81A6
 #define GL_DEPTH_COMPONENT 0x1902
 #define GL_UNSIGNED_INT 0x1405
 #define GL_TEXTURE_2D 0x0DE1
+#define GL_TEXTURE_2D_MULTISAMPLE 0x9100
 #define GL_COLOR_BUFFER_BIT 0x00004000
 #define GL_DEPTH_BUFFER_BIT 0x00000100
+#define GL_DEBUG_SOURCE_APPLICATION 0x824A
+#define GL_DEBUG_TYPE_MARKER 0x8268
+#define GL_DEBUG_SEVERITY_NOTIFICATION 0x826B
 #define WGL_CONTEXT_MAJOR_VERSION_ARB 0x2091
 #define WGL_CONTEXT_MINOR_VERSION_ARB 0x2092
 #define WGL_CONTEXT_PROFILE_MASK_ARB 0x9126
@@ -77,6 +93,7 @@ typedef void (APIENTRY* PFNGLDELETEPROGRAMPROC)(GLuint);
 typedef GLint (APIENTRY* PFNGLGETUNIFORMLOCATIONPROC)(GLuint, const GLchar*);
 typedef void (APIENTRY* PFNGLUNIFORMMATRIX4FVPROC)(GLint, GLsizei, GLboolean, const GLfloat*);
 typedef void (APIENTRY* PFNGLUNIFORM1IPROC)(GLint, GLint);
+typedef void (APIENTRY* PFNGLUNIFORM1FPROC)(GLint, GLfloat);
 typedef void (APIENTRY* PFNGLUNIFORM2FPROC)(GLint, GLfloat, GLfloat);
 typedef void (APIENTRY* PFNGLUNIFORM4FPROC)(GLint, GLfloat, GLfloat, GLfloat, GLfloat);
 typedef void (APIENTRY* PFNGLENABLEVERTEXATTRIBARRAYPROC)(GLuint);
@@ -89,9 +106,11 @@ typedef GLenum (APIENTRY* PFNGLCHECKFRAMEBUFFERSTATUSPROC)(GLenum);
 typedef void (APIENTRY* PFNGLFRAMEBUFFERTEXTURE2DPROC)(GLenum, GLenum, GLenum, GLuint, GLint);
 typedef void (APIENTRY* PFNGLGENRENDERBUFFERSPROC)(GLsizei, GLuint*);
 typedef void (APIENTRY* PFNGLTEXIMAGE2DMULTISAMPLEPROC)(GLenum, GLsizei, GLenum, GLsizei, GLsizei, GLboolean);
+typedef void (APIENTRY* PFNGLBLITFRAMEBUFFERPROC)(GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLint, GLbitfield, GLenum);
 
 typedef void (APIENTRY* PFNGLACTIVETEXTUREPROC)(GLenum);
 typedef void (APIENTRY* PFNGLGENERATEMIPMAPPROC)(GLenum);
+typedef void (APIENTRY* PFNGLDEBUGMESSAGEINSERTPROC)(GLenum, GLenum, GLuint, GLenum, GLsizei, const GLchar*);
 
 #define LOAD_GL(name) name = (decltype(name))wglGetProcAddress(#name)
 
@@ -118,6 +137,7 @@ static PFNGLDELETEPROGRAMPROC glDeleteProgram;
 static PFNGLGETUNIFORMLOCATIONPROC glGetUniformLocation;
 static PFNGLUNIFORMMATRIX4FVPROC glUniformMatrix4fv;
 static PFNGLUNIFORM1IPROC glUniform1i;
+static PFNGLUNIFORM1FPROC glUniform1f;
 static PFNGLUNIFORM2FPROC glUniform2f;
 static PFNGLUNIFORM4FPROC glUniform4f;
 static PFNGLENABLEVERTEXATTRIBARRAYPROC glEnableVertexAttribArray;
@@ -128,7 +148,10 @@ static PFNGLBINDFRAMEBUFFERPROC glBindFramebuffer;
 static PFNGLDELETEFRAMEBUFFERSPROC glDeleteFramebuffers;
 static PFNGLCHECKFRAMEBUFFERSTATUSPROC glCheckFramebufferStatus;
 static PFNGLFRAMEBUFFERTEXTURE2DPROC glFramebufferTexture2D;
+static PFNGLTEXIMAGE2DMULTISAMPLEPROC glTexImage2DMultisample;
+static PFNGLBLITFRAMEBUFFERPROC glBlitFramebuffer;
 static PFNGLACTIVETEXTUREPROC glActiveTexture;
+static PFNGLDEBUGMESSAGEINSERTPROC glDebugMessageInsert;
 
 HDC g_deviceContext = 0;
 HWND g_window = 0;
@@ -136,17 +159,35 @@ static GLuint g_cubeVao = 0;
 static GLuint g_cubeVbo = 0;
 static GLuint g_cubeProgram = 0;
 static GLuint g_screenProgram = 0;
+static GLuint g_jfaSeedProgram = 0;
+static GLuint g_jfaStepProgram = 0;
+static GLuint g_jfaComposeProgram = 0;
 static GLuint g_presentProgram = 0;
 static GLuint g_framebuffer = 0;
+static GLuint g_msaaFramebuffer = 0;
 static GLuint g_colorTexture = 0;
 static GLuint g_depthTexture = 0;
+static GLuint g_msaaColorTexture = 0;
+static GLuint g_msaaDepthTexture = 0;
 static GLuint g_outlineFramebuffer = 0;
 static GLuint g_outlineTexture = 0;
+static GLuint g_jfaFramebuffer = 0;
+static GLuint g_jfaTextureA = 0;
+static GLuint g_jfaTextureB = 0;
 static GLint g_cubeMatrix = -1;
 static GLint g_cubeModelView = -1;
 static GLint g_screenTexture = -1;
 static GLint g_screenStencil = -1;
 static GLint g_screenTexelSize = -1;
+static GLint g_screenOutlineImplementation = -1;
+static GLint g_screenOutlineWidth = -1;
+static GLint g_jfaSeedStencil = -1;
+static GLint g_jfaStepInput = -1;
+static GLint g_jfaStepJumpDistance = -1;
+static GLint g_jfaComposeScene = -1;
+static GLint g_jfaComposeStencil = -1;
+static GLint g_jfaComposeResult = -1;
+static GLint g_jfaComposeOutlineWidth = -1;
 static GLint g_presentTexture = -1;
 int g_width = 960;
 int g_height = 640;
@@ -156,6 +197,9 @@ static Quaternion g_rotation = { 1.0f, 0.0f, 0.0f, 0.0f };
 static const float g_distance = 6.0f;
 static float g_fieldOfView = 60.0f;
 static float g_backgroundColor[3] = { 1.0f, 1.0f, 1.0f };
+static int g_outlineImplementation = 0;
+static float g_outlineWidthPixels = 4.0f;
+static bool g_msaaEnabled = false;
 static float g_panX = 0.0f;
 static float g_panY = 0.0f;
 static bool g_rotating = false;
@@ -168,28 +212,147 @@ static void Fail(const char* message)
     MessageBoxA(g_window, message, "OpenGL initialization error", MB_ICONERROR | MB_OK);
 }
 
+static bool AttachFramebufferTexture(GLenum attachment, GLenum textureTarget, GLuint texture, const char* attachmentName)
+{
+    GLenum error = glGetError();
+    if (error != GL_NO_ERROR)
+    {
+        char message[256] = {};
+        sprintf_s(message, "OpenGL error before attaching the %s texture: 0x%04X.", attachmentName, error);
+        Fail(message);
+        return false;
+    }
+
+    glFramebufferTexture2D(GL_FRAMEBUFFER, attachment, textureTarget, texture, 0);
+    error = glGetError();
+    if (error != GL_NO_ERROR)
+    {
+        char message[256] = {};
+        sprintf_s(message, "glFramebufferTexture2D failed for the %s texture: 0x%04X.", attachmentName, error);
+        Fail(message);
+        return false;
+    }
+
+    return true;
+}
+
+static bool CheckFramebufferComplete(const char* framebufferName)
+{
+    const GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (status == GL_FRAMEBUFFER_COMPLETE)
+    {
+        return true;
+    }
+
+    const char* reason = "unknown framebuffer status";
+    switch (status)
+    {
+    case GL_FRAMEBUFFER_UNDEFINED:
+        reason = "default framebuffer is undefined";
+        break;
+    case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+        reason = "attachment is incomplete";
+        break;
+    case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+        reason = "no image is attached";
+        break;
+    case GL_FRAMEBUFFER_INCOMPLETE_DRAW_BUFFER:
+        reason = "draw buffer is incomplete";
+        break;
+    case GL_FRAMEBUFFER_INCOMPLETE_READ_BUFFER:
+        reason = "read buffer is incomplete";
+        break;
+    case GL_FRAMEBUFFER_UNSUPPORTED:
+        reason = "attachment combination is unsupported";
+        break;
+    case GL_FRAMEBUFFER_INCOMPLETE_MULTISAMPLE:
+        reason = "multisample configuration is incomplete";
+        break;
+    case GL_FRAMEBUFFER_INCOMPLETE_LAYER_TARGETS:
+        reason = "layered attachment configuration is incomplete";
+        break;
+    }
+
+    char message[256] = {};
+    sprintf_s(message, "%s is incomplete: %s (status 0x%04X).", framebufferName, reason, status);
+    Fail(message);
+    return false;
+}
+
 static void* GetGLProc(const char* name)
 {
     void* address = (void*)wglGetProcAddress(name);
-    if (address == 0 || address == (void*)0x1 || address == (void*)0x2 || address == (void*)0x3 || address == (void*)-1) {
+    if (address == 0 || address == (void*)0x1 || address == (void*)0x2 || address == (void*)0x3 || address == (void*)-1)
+    {
         HMODULE module = GetModuleHandleA("opengl32.dll");
         address = (void*)GetProcAddress(module, name);
     }
     return address;
 }
 
+static void DebugMessage(const char* message)
+{
+    if (glDebugMessageInsert)
+    {
+        glDebugMessageInsert(
+            GL_DEBUG_SOURCE_APPLICATION,
+            GL_DEBUG_TYPE_MARKER,
+            0,
+            GL_DEBUG_SEVERITY_NOTIFICATION,
+            -1,
+            message);
+    }
+}
+
 static bool LoadFunctions(void)
 {
 #define LOAD_REQUIRED(name) name = (decltype(name))GetGLProc(#name); if (!name) return false
-    LOAD_REQUIRED(glGenVertexArrays); LOAD_REQUIRED(glBindVertexArray); LOAD_REQUIRED(glDeleteVertexArrays);
-    LOAD_REQUIRED(glGenBuffers); LOAD_REQUIRED(glBindBuffer); LOAD_REQUIRED(glBufferData); LOAD_REQUIRED(glDeleteBuffers);
-    LOAD_REQUIRED(glCreateShader); LOAD_REQUIRED(glShaderSource); LOAD_REQUIRED(glCompileShader); LOAD_REQUIRED(glGetShaderiv);
-    LOAD_REQUIRED(glGetShaderInfoLog); LOAD_REQUIRED(glDeleteShader); LOAD_REQUIRED(glCreateProgram); LOAD_REQUIRED(glAttachShader);
-    LOAD_REQUIRED(glLinkProgram); LOAD_REQUIRED(glGetProgramiv); LOAD_REQUIRED(glGetProgramInfoLog); LOAD_REQUIRED(glUseProgram);
-    LOAD_REQUIRED(glDeleteProgram); LOAD_REQUIRED(glGetUniformLocation); LOAD_REQUIRED(glUniformMatrix4fv); LOAD_REQUIRED(glUniform1i); LOAD_REQUIRED(glUniform2f); LOAD_REQUIRED(glUniform4f);
-    LOAD_REQUIRED(glEnableVertexAttribArray); LOAD_REQUIRED(glDisableVertexAttribArray); LOAD_REQUIRED(glVertexAttribPointer);
-    LOAD_REQUIRED(glGenFramebuffers); LOAD_REQUIRED(glBindFramebuffer); LOAD_REQUIRED(glDeleteFramebuffers);
-    LOAD_REQUIRED(glCheckFramebufferStatus); LOAD_REQUIRED(glFramebufferTexture2D); LOAD_REQUIRED(glActiveTexture);
+    LOAD_REQUIRED(glGenVertexArrays);
+    LOAD_REQUIRED(glBindVertexArray);
+    LOAD_REQUIRED(glDeleteVertexArrays);
+    LOAD_REQUIRED(glGenBuffers);
+    LOAD_REQUIRED(glBindBuffer);
+    LOAD_REQUIRED(glBufferData);
+    LOAD_REQUIRED(glDeleteBuffers);
+    LOAD_REQUIRED(glCreateShader);
+    LOAD_REQUIRED(glShaderSource);
+    LOAD_REQUIRED(glCompileShader);
+    LOAD_REQUIRED(glGetShaderiv);
+    LOAD_REQUIRED(glGetShaderInfoLog);
+    LOAD_REQUIRED(glDeleteShader);
+    LOAD_REQUIRED(glCreateProgram);
+    LOAD_REQUIRED(glAttachShader);
+    LOAD_REQUIRED(glLinkProgram);
+    LOAD_REQUIRED(glGetProgramiv);
+    LOAD_REQUIRED(glGetProgramInfoLog);
+    LOAD_REQUIRED(glUseProgram);
+    LOAD_REQUIRED(glDeleteProgram);
+    LOAD_REQUIRED(glGetUniformLocation);
+    LOAD_REQUIRED(glUniformMatrix4fv);
+    LOAD_REQUIRED(glUniform1i);
+    LOAD_REQUIRED(glUniform1f);
+    LOAD_REQUIRED(glUniform2f);
+    LOAD_REQUIRED(glUniform4f);
+    LOAD_REQUIRED(glEnableVertexAttribArray);
+    LOAD_REQUIRED(glDisableVertexAttribArray);
+    LOAD_REQUIRED(glVertexAttribPointer);
+    LOAD_REQUIRED(glGenFramebuffers);
+    LOAD_REQUIRED(glBindFramebuffer);
+    LOAD_REQUIRED(glDeleteFramebuffers);
+    LOAD_REQUIRED(glCheckFramebufferStatus);
+    LOAD_REQUIRED(glFramebufferTexture2D);
+    LOAD_REQUIRED(glTexImage2DMultisample);
+    LOAD_REQUIRED(glBlitFramebuffer);
+    LOAD_REQUIRED(glActiveTexture);
+    glDebugMessageInsert = (PFNGLDEBUGMESSAGEINSERTPROC)GetGLProc("glDebugMessageInsert");
+    if (!glDebugMessageInsert)
+    {
+        glDebugMessageInsert = (PFNGLDEBUGMESSAGEINSERTPROC)GetGLProc("glDebugMessageInsertKHR");
+    }
+    if (!glDebugMessageInsert)
+    {
+        glDebugMessageInsert = (PFNGLDEBUGMESSAGEINSERTPROC)GetGLProc("glDebugMessageInsertARB");
+    }
 #undef LOAD_REQUIRED
     return true;
 }
@@ -201,7 +364,8 @@ static GLuint CompileShader(GLenum type, const char* source)
     glCompileShader(shader);
     GLint status = 0;
     glGetShaderiv(shader, GL_COMPILE_STATUS, &status);
-    if (!status) {
+    if (!status)
+    {
         char log[2048] = {};
         glGetShaderInfoLog(shader, sizeof(log), 0, log);
         MessageBoxA(g_window, log, "Shader compilation failed", MB_ICONERROR | MB_OK);
@@ -224,7 +388,8 @@ static GLuint CreateProgram(const char* vertexSource, const char* fragmentSource
     glDeleteShader(fragment);
     GLint status = 0;
     glGetProgramiv(program, GL_LINK_STATUS, &status);
-    if (!status) {
+    if (!status)
+    {
         char log[2048] = {};
         glGetProgramInfoLog(program, sizeof(log), 0, log);
         MessageBoxA(g_window, log, "Program link failed", MB_ICONERROR | MB_OK);
@@ -264,7 +429,10 @@ static void Multiply(const float* a, const float* b, float* out);
 
 static void Identity(float* m)
 {
-    for (int i = 0; i < 16; ++i) m[i] = 0.0f;
+    for (int i = 0; i < 16; ++i)
+    {
+        m[i] = 0.0f;
+    }
     m[0] = m[5] = m[10] = m[15] = 1.0f;
 }
 
@@ -288,7 +456,10 @@ static void BuildPerspective(float aspect, float* m)
 static Quaternion NormalizeQuaternion(Quaternion q)
 {
     const float length = (float)sqrt(q.w * q.w + q.x * q.x + q.y * q.y + q.z * q.z);
-    if (length <= 0.000001f) return { 1.0f, 0.0f, 0.0f, 0.0f };
+    if (length <= 0.000001f)
+    {
+        return { 1.0f, 0.0f, 0.0f, 0.0f };
+    }
     return { q.w / length, q.x / length, q.y / length, q.z / length };
 }
 
@@ -311,31 +482,58 @@ static void QuaternionToMatrix(Quaternion q, float* m)
     const float xy = q.x * q.y, xz = q.x * q.z, yz = q.y * q.z;
     const float wx = q.w * q.x, wy = q.w * q.y, wz = q.w * q.z;
     Identity(m);
-    m[0] = 1.0f - 2.0f * (yy + zz); m[1] = 2.0f * (xy + wz); m[2] = 2.0f * (xz - wy);
-    m[4] = 2.0f * (xy - wz); m[5] = 1.0f - 2.0f * (xx + zz); m[6] = 2.0f * (yz + wx);
-    m[8] = 2.0f * (xz + wy); m[9] = 2.0f * (yz - wx); m[10] = 1.0f - 2.0f * (xx + yy);
+    m[0] = 1.0f - 2.0f * (yy + zz);
+    m[1] = 2.0f * (xy + wz);
+    m[2] = 2.0f * (xz - wy);
+    m[4] = 2.0f * (xy - wz);
+    m[5] = 1.0f - 2.0f * (xx + zz);
+    m[6] = 2.0f * (yz + wx);
+    m[8] = 2.0f * (xz + wy);
+    m[9] = 2.0f * (yz - wx);
+    m[10] = 1.0f - 2.0f * (xx + yy);
 }
 
 static void BuildModelView(float* m)
 {
     QuaternionToMatrix(g_rotation, m);
-    m[12] = 0.0f; m[13] = 0.0f; m[14] = -g_distance; m[15] = 1.0f;
+    m[12] = 0.0f;
+    m[13] = 0.0f;
+    m[14] = -g_distance;
+    m[15] = 1.0f;
 }
 static void Multiply(const float* a, const float* b, float* out)
 {
     float result[16] = {};
-    for (int column = 0; column < 4; ++column) for (int row = 0; row < 4; ++row)
-        for (int k = 0; k < 4; ++k) result[column * 4 + row] += a[k * 4 + row] * b[column * 4 + k];
-    for (int i = 0; i < 16; ++i) out[i] = result[i];
+    for (int column = 0; column < 4; ++column)
+    {
+        for (int row = 0; row < 4; ++row)
+        {
+            for (int k = 0; k < 4; ++k)
+            {
+                result[column * 4 + row] += a[k * 4 + row] * b[column * 4 + k];
+            }
+        }
+    }
+
+    for (int i = 0; i < 16; ++i)
+    {
+        out[i] = result[i];
+    }
 }
 
 static bool CreateRenderTarget(int width, int height)
 {
     if (g_framebuffer) glDeleteFramebuffers(1, &g_framebuffer);
+    if (g_msaaFramebuffer) glDeleteFramebuffers(1, &g_msaaFramebuffer);
     if (g_outlineFramebuffer) glDeleteFramebuffers(1, &g_outlineFramebuffer);
+    if (g_jfaFramebuffer) glDeleteFramebuffers(1, &g_jfaFramebuffer);
     if (g_colorTexture) glDeleteTextures(1, &g_colorTexture);
     if (g_depthTexture) glDeleteTextures(1, &g_depthTexture);
+    if (g_msaaColorTexture) glDeleteTextures(1, &g_msaaColorTexture);
+    if (g_msaaDepthTexture) glDeleteTextures(1, &g_msaaDepthTexture);
     if (g_outlineTexture) glDeleteTextures(1, &g_outlineTexture);
+    if (g_jfaTextureA) glDeleteTextures(1, &g_jfaTextureA);
+    if (g_jfaTextureB) glDeleteTextures(1, &g_jfaTextureB);
 
     glGenFramebuffers(1, &g_framebuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, g_framebuffer);
@@ -346,7 +544,11 @@ static bool CreateRenderTarget(int width, int height)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_colorTexture, 0);
+    if (!AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_colorTexture, "color"))
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return false;
+    }
 
     glGenTextures(1, &g_depthTexture);
     glBindTexture(GL_TEXTURE_2D, g_depthTexture);
@@ -354,8 +556,46 @@ static bool CreateRenderTarget(int width, int height)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_DEPTH_STENCIL_TEXTURE_MODE, GL_STENCIL_INDEX);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8, width, height, 0, GL_DEPTH_STENCIL, GL_UNSIGNED_INT_24_8, 0);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, g_depthTexture, 0);
-    const bool mainComplete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    if (!AttachFramebufferTexture(GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D, g_depthTexture, "depth-stencil"))
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return false;
+    }
+    if (!CheckFramebufferComplete("Main framebuffer"))
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return false;
+    }
+
+    if (g_msaaEnabled)
+    {
+        glGenFramebuffers(1, &g_msaaFramebuffer);
+        glBindFramebuffer(GL_FRAMEBUFFER, g_msaaFramebuffer);
+
+        glGenTextures(1, &g_msaaColorTexture);
+        glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, g_msaaColorTexture);
+        glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, 8, GL_RGBA8, width, height, GL_TRUE);
+        if (!AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D_MULTISAMPLE, g_msaaColorTexture, "msaa-color"))
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return false;
+        }
+
+        glGenTextures(1, &g_msaaDepthTexture);
+        glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, g_msaaDepthTexture);
+        glTexImage2DMultisample(GL_TEXTURE_2D_MULTISAMPLE, 8, GL_DEPTH24_STENCIL8, width, height, GL_TRUE);
+        if (!AttachFramebufferTexture(GL_DEPTH_STENCIL_ATTACHMENT, GL_TEXTURE_2D_MULTISAMPLE, g_msaaDepthTexture, "msaa-depth-stencil"))
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return false;
+        }
+
+        if (!CheckFramebufferComplete("MSAA framebuffer"))
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return false;
+        }
+    }
 
     glGenFramebuffers(1, &g_outlineFramebuffer);
     glBindFramebuffer(GL_FRAMEBUFFER, g_outlineFramebuffer);
@@ -366,20 +606,151 @@ static bool CreateRenderTarget(int width, int height)
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
-    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_outlineTexture, 0);
-    const bool outlineComplete = glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE;
+    if (!AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_outlineTexture, "outline"))
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return false;
+    }
+    const bool outlineComplete = CheckFramebufferComplete("Outline framebuffer");
+    if (!outlineComplete)
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return false;
+    }
+
+    glGenFramebuffers(1, &g_jfaFramebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, g_jfaFramebuffer);
+    glGenTextures(1, &g_jfaTextureA);
+    glBindTexture(GL_TEXTURE_2D, g_jfaTextureA);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, 0);
+
+    glGenTextures(1, &g_jfaTextureB);
+    glBindTexture(GL_TEXTURE_2D, g_jfaTextureB);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, 0);
+
+    if (!AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_jfaTextureA, "jfa-a"))
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return false;
+    }
+
+    if (!CheckFramebufferComplete("JFA framebuffer"))
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return false;
+    }
+
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    return mainComplete && outlineComplete;
+    return true;
+}
+
+static GLuint RunJfaPasses(void)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, g_jfaFramebuffer);
+    glViewport(0, 0, g_width, g_height);
+    glDisable(GL_DEPTH_TEST);
+
+    if (!AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_jfaTextureA, "jfa-seed-target"))
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return 0;
+    }
+
+    glUseProgram(g_jfaSeedProgram);
+    glUniform1i(g_jfaSeedStencil, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    GLuint inputTexture = g_jfaTextureA;
+    GLuint outputTexture = g_jfaTextureB;
+    int maxDimension = g_width > g_height ? g_width : g_height;
+    int jumpDistance = 1;
+    while (jumpDistance < maxDimension)
+    {
+        jumpDistance <<= 1;
+    }
+    jumpDistance >>= 1;
+    if (jumpDistance < 1)
+    {
+        jumpDistance = 1;
+    }
+
+    while (jumpDistance >= 1)
+    {
+        if (!AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, outputTexture, "jfa-step-target"))
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return 0;
+        }
+
+        glUseProgram(g_jfaStepProgram);
+        glUniform1i(g_jfaStepInput, 0);
+        glUniform1f(g_jfaStepJumpDistance, (float)jumpDistance);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, inputTexture);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+
+        GLuint temporary = inputTexture;
+        inputTexture = outputTexture;
+        outputTexture = temporary;
+        jumpDistance >>= 1;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return inputTexture;
+}
+
+static void RenderJfaOutline(void)
+{
+    GLuint jfaResult = RunJfaPasses();
+    if (!jfaResult)
+    {
+        return;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, g_outlineFramebuffer);
+    glViewport(0, 0, g_width, g_height);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_DEPTH_TEST);
+    glUseProgram(g_jfaComposeProgram);
+    glUniform1i(g_jfaComposeScene, 0);
+    glUniform1i(g_jfaComposeStencil, 1);
+    glUniform1i(g_jfaComposeResult, 2);
+    glUniform1f(g_jfaComposeOutlineWidth, g_outlineWidthPixels);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_colorTexture);
+    glActiveTexture(GL_TEXTURE0 + 1);
+    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+    glActiveTexture(GL_TEXTURE0 + 2);
+    glBindTexture(GL_TEXTURE_2D, jfaResult);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
 }
 bool Renderer_Initialize(void)
 {
-    if (!LoadFunctions()) { Fail("Required OpenGL 3.3 compatibility functions are unavailable."); return false; }
+    if (!LoadFunctions())
+    {
+        Fail("Required OpenGL 3.3 compatibility functions are unavailable.");
+        return false;
+    }
 
     std::string cubeVertex, cubeFragment, screenVertex, screenFragment, presentFragment;
+    std::string jfaSeedFragment, jfaStepFragment, jfaComposeFragment;
     if (!LoadShaderSource("cube.vert", cubeVertex) ||
         !LoadShaderSource("cube.frag", cubeFragment) ||
         !LoadShaderSource("fullscreen.vert", screenVertex) ||
         !LoadShaderSource("outline.frag", screenFragment) ||
+        !LoadShaderSource("jfa_seed.frag", jfaSeedFragment) ||
+        !LoadShaderSource("jfa_step.frag", jfaStepFragment) ||
+        !LoadShaderSource("jfa_compose.frag", jfaComposeFragment) ||
         !LoadShaderSource("present.frag", presentFragment))
     {
         Fail("Unable to load shader files from the shaders directory.");
@@ -387,13 +758,25 @@ bool Renderer_Initialize(void)
     }
     g_cubeProgram = CreateProgram(cubeVertex.c_str(), cubeFragment.c_str());
     g_screenProgram = CreateProgram(screenVertex.c_str(), screenFragment.c_str());
+    g_jfaSeedProgram = CreateProgram(screenVertex.c_str(), jfaSeedFragment.c_str());
+    g_jfaStepProgram = CreateProgram(screenVertex.c_str(), jfaStepFragment.c_str());
+    g_jfaComposeProgram = CreateProgram(screenVertex.c_str(), jfaComposeFragment.c_str());
     g_presentProgram = CreateProgram(screenVertex.c_str(), presentFragment.c_str());
-    if (!g_cubeProgram || !g_screenProgram || !g_presentProgram) return false;
+    if (!g_cubeProgram || !g_screenProgram || !g_jfaSeedProgram || !g_jfaStepProgram || !g_jfaComposeProgram || !g_presentProgram) return false;
     g_cubeMatrix = glGetUniformLocation(g_cubeProgram, "mvp");
     g_cubeModelView = glGetUniformLocation(g_cubeProgram, "modelView");
     g_screenTexture = glGetUniformLocation(g_screenProgram, "sceneColor");
     g_screenStencil = glGetUniformLocation(g_screenProgram, "stencilMask");
     g_screenTexelSize = glGetUniformLocation(g_screenProgram, "texelSize");
+    g_screenOutlineImplementation = glGetUniformLocation(g_screenProgram, "outlineImplementation");
+    g_screenOutlineWidth = glGetUniformLocation(g_screenProgram, "outlineWidth");
+    g_jfaSeedStencil = glGetUniformLocation(g_jfaSeedProgram, "stencilMask");
+    g_jfaStepInput = glGetUniformLocation(g_jfaStepProgram, "jfaInput");
+    g_jfaStepJumpDistance = glGetUniformLocation(g_jfaStepProgram, "jumpDistance");
+    g_jfaComposeScene = glGetUniformLocation(g_jfaComposeProgram, "sceneColor");
+    g_jfaComposeStencil = glGetUniformLocation(g_jfaComposeProgram, "stencilMask");
+    g_jfaComposeResult = glGetUniformLocation(g_jfaComposeProgram, "jfaResult");
+    g_jfaComposeOutlineWidth = glGetUniformLocation(g_jfaComposeProgram, "outlineWidth");
     g_presentTexture = glGetUniformLocation(g_presentProgram, "screenTexture");
 
     const float vertices[] = {
@@ -404,20 +787,30 @@ bool Renderer_Initialize(void)
         -1,1,1, 0,1,0,  1,1,1, 0,1,0,  1,1,-1, 0,1,0, -1,1,-1, 0,1,0,
         -1,-1,-1, 0,-1,0,  1,-1,-1, 0,-1,0,  1,-1,1, 0,-1,0, -1,-1,1, 0,-1,0
     };
-    glGenVertexArrays(1, &g_cubeVao); glBindVertexArray(g_cubeVao);
-    glGenBuffers(1, &g_cubeVbo); glBindBuffer(GL_ARRAY_BUFFER, g_cubeVbo);
+    glGenVertexArrays(1, &g_cubeVao);
+    glBindVertexArray(g_cubeVao);
+    glGenBuffers(1, &g_cubeVbo);
+    glBindBuffer(GL_ARRAY_BUFFER, g_cubeVbo);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-    glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
     glBindVertexArray(0);
-    if (!CreateRenderTarget(g_width, g_height)) { Fail("The texture-backed framebuffer is incomplete."); return false; }
+    if (!CreateRenderTarget(g_width, g_height))
+    {
+        Fail("The texture-backed framebuffer is incomplete.");
+        return false;
+    }
     return true;
 }
 
 void Renderer_Render(void)
 {
     if (g_width <= 0 || g_height <= 0) return;
-    glBindFramebuffer(GL_FRAMEBUFFER, g_framebuffer);
+    DebugMessage("Begin render pass");
+    GLuint renderFramebuffer = g_msaaEnabled ? g_msaaFramebuffer : g_framebuffer;
+    glBindFramebuffer(GL_FRAMEBUFFER, renderFramebuffer);
     glViewport(0, 0, g_width, g_height);
     glClearColor(g_backgroundColor[0], g_backgroundColor[1], g_backgroundColor[2], 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
@@ -430,25 +823,57 @@ void Renderer_Render(void)
     BuildPerspective((float)g_width / (float)g_height, projection);
     BuildModelView(modelView);
     Multiply(projection, modelView, mvp);
-    glUseProgram(g_cubeProgram); glUniformMatrix4fv(g_cubeMatrix, 1, GL_FALSE, mvp); glUniformMatrix4fv(g_cubeModelView, 1, GL_FALSE, modelView);
+    glUseProgram(g_cubeProgram);
+    glUniformMatrix4fv(g_cubeMatrix, 1, GL_FALSE, mvp);
+    glUniformMatrix4fv(g_cubeModelView, 1, GL_FALSE, modelView);
     glBindVertexArray(g_cubeVao);
-    for (int face = 0; face < 6; ++face) glDrawArrays(GL_QUADS, face * 4, 4);
+    for (int face = 0; face < 6; ++face)
+    {
+        glDrawArrays(GL_QUADS, face * 4, 4);
+    }
+    DebugMessage("End render pass");
 
+    if (g_msaaEnabled)
+    {
+        DebugMessage("Begin MSAA resolve pass");
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, g_msaaFramebuffer);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g_framebuffer);
+        glBlitFramebuffer(
+            0, 0, g_width, g_height,
+            0, 0, g_width, g_height,
+            GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT,
+            GL_NEAREST);
+        glBindFramebuffer(GL_FRAMEBUFFER, g_framebuffer);
+        DebugMessage("End MSAA resolve pass");
+    }
+
+    DebugMessage("Begin outline pass");
     glDisable(GL_STENCIL_TEST);
-    glBindFramebuffer(GL_FRAMEBUFFER, g_outlineFramebuffer);
-    glViewport(0, 0, g_width, g_height);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glDisable(GL_DEPTH_TEST);
-    glUseProgram(g_screenProgram);
-    glUniform1i(g_screenTexture, 0);
-    glUniform1i(g_screenStencil, 1);
-    glUniform2f(g_screenTexelSize, 1.0f / (float)g_width, 1.0f / (float)g_height);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, g_colorTexture);
-    glActiveTexture(GL_TEXTURE0 + 1);
-    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
-    glDrawArrays(GL_TRIANGLES, 0, 3);
+    if (g_outlineImplementation == 2)
+    {
+        RenderJfaOutline();
+    }
+    else
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, g_outlineFramebuffer);
+        glViewport(0, 0, g_width, g_height);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glDisable(GL_DEPTH_TEST);
+        glUseProgram(g_screenProgram);
+        glUniform1i(g_screenTexture, 0);
+        glUniform1i(g_screenStencil, 1);
+        glUniform1i(g_screenOutlineImplementation, g_outlineImplementation);
+        glUniform1f(g_screenOutlineWidth, g_outlineWidthPixels);
+        glUniform2f(g_screenTexelSize, 1.0f / (float)g_width, 1.0f / (float)g_height);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, g_colorTexture);
+        glActiveTexture(GL_TEXTURE0 + 1);
+        glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+    }
+    DebugMessage("End outline pass");
 
+    DebugMessage("Begin blend back to renderframe pass");
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glViewport(0, 0, g_width, g_height);
     glDisable(GL_DEPTH_TEST);
@@ -458,6 +883,7 @@ void Renderer_Render(void)
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, g_outlineTexture);
     glDrawArrays(GL_TRIANGLES, 0, 3);
+    DebugMessage("End blend back to renderframe pass");
 
 }
 
@@ -466,7 +892,11 @@ void Renderer_MouseButton(int button, bool down, int x, int y)
 {
     if (button == 0) g_rotating = down;
     if (button == 1) g_panning = down;
-    if (down) { g_lastMouseX = x; g_lastMouseY = y; }
+    if (down)
+    {
+        g_lastMouseX = x;
+        g_lastMouseY = y;
+    }
 }
 
 void Renderer_MouseMove(int x, int y)
@@ -475,13 +905,15 @@ void Renderer_MouseMove(int x, int y)
     const int deltaY = y - g_lastMouseY;
     g_lastMouseX = x;
     g_lastMouseY = y;
-    if (g_rotating) {
+    if (g_rotating)
+    {
         const float radiansPerPixel = 0.5f * 0.01745329252f;
         const Quaternion yaw = QuaternionFromAxisAngle(0.0f, 1.0f, 0.0f, deltaX * radiansPerPixel);
         const Quaternion pitch = QuaternionFromAxisAngle(1.0f, 0.0f, 0.0f, -deltaY * radiansPerPixel);
         g_rotation = NormalizeQuaternion(MultiplyQuaternion(yaw, MultiplyQuaternion(pitch, g_rotation)));
     }
-    if (g_panning) {
+    if (g_panning)
+    {
         const float width = (float)(g_width > 0 ? g_width : 1);
         const float height = (float)(g_height > 0 ? g_height : 1);
         g_panX -= 2.0f * deltaX / width;
@@ -507,24 +939,22 @@ void Renderer_Shutdown(void)
     if (g_cubeVbo) glDeleteBuffers(1, &g_cubeVbo);
     if (g_cubeProgram) glDeleteProgram(g_cubeProgram);
     if (g_screenProgram) glDeleteProgram(g_screenProgram);
+    if (g_jfaSeedProgram) glDeleteProgram(g_jfaSeedProgram);
+    if (g_jfaStepProgram) glDeleteProgram(g_jfaStepProgram);
+    if (g_jfaComposeProgram) glDeleteProgram(g_jfaComposeProgram);
     if (g_presentProgram) glDeleteProgram(g_presentProgram);
     if (g_framebuffer) glDeleteFramebuffers(1, &g_framebuffer);
+    if (g_msaaFramebuffer) glDeleteFramebuffers(1, &g_msaaFramebuffer);
     if (g_outlineFramebuffer) glDeleteFramebuffers(1, &g_outlineFramebuffer);
+    if (g_jfaFramebuffer) glDeleteFramebuffers(1, &g_jfaFramebuffer);
     if (g_colorTexture) glDeleteTextures(1, &g_colorTexture);
     if (g_depthTexture) glDeleteTextures(1, &g_depthTexture);
+    if (g_msaaColorTexture) glDeleteTextures(1, &g_msaaColorTexture);
+    if (g_msaaDepthTexture) glDeleteTextures(1, &g_msaaDepthTexture);
     if (g_outlineTexture) glDeleteTextures(1, &g_outlineTexture);
+    if (g_jfaTextureA) glDeleteTextures(1, &g_jfaTextureA);
+    if (g_jfaTextureB) glDeleteTextures(1, &g_jfaTextureB);
 }
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -538,4 +968,52 @@ void Renderer_SetBackgroundColor(float red, float green, float blue)
     g_backgroundColor[0] = red;
     g_backgroundColor[1] = green;
     g_backgroundColor[2] = blue;
+}
+
+void Renderer_SetOutlineImplementation(int implementation)
+{
+    if (implementation < 0)
+    {
+        g_outlineImplementation = 0;
+        return;
+    }
+
+    if (implementation > 2)
+    {
+        g_outlineImplementation = 2;
+        return;
+    }
+
+    g_outlineImplementation = implementation;
+}
+
+void Renderer_SetOutlineThickness(float pixels)
+{
+    if (pixels < 1.0f)
+    {
+        g_outlineWidthPixels = 1.0f;
+        return;
+    }
+
+    if (pixels > 32.0f)
+    {
+        g_outlineWidthPixels = 32.0f;
+        return;
+    }
+
+    g_outlineWidthPixels = pixels;
+}
+
+void Renderer_SetMsaaEnabled(bool enabled)
+{
+    if (g_msaaEnabled == enabled)
+    {
+        return;
+    }
+
+    g_msaaEnabled = enabled;
+    if (g_framebuffer && !CreateRenderTarget(g_width, g_height))
+    {
+        Fail("Unable to recreate render targets after changing MSAA mode.");
+    }
 }
