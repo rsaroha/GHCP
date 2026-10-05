@@ -60,6 +60,15 @@ bool Ui_Initialize(HWND window)
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+    
+
+    ImFontConfig fontConfig;
+    fontConfig.SizePixels = 13.0f;
+    io.Fonts->AddFontDefault(&fontConfig);
+    io.FontGlobalScale = 1.f;
+
+    io.Fonts->AddFontDefaultVector();
+
     ImGui::StyleColorsDark();
     if (!ImGui_ImplWin32_Init(window)) return false;
     if (!ImGui_ImplOpenGL3_Init("#version 330")) return false;
