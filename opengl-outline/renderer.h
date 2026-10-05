@@ -21,7 +21,7 @@ bool Renderer_LoadObj(const char* filename);
 void Renderer_SetOutlineImplementation(int implementation);
 void Renderer_SetOutlineThickness(float pixels);
 void Renderer_SetOutlineAntialiasing(bool enabled);
+void Renderer_SetInteriorOutline(bool enabled);
 void Renderer_SetMsaaEnabled(bool enabled);
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
 bool CreateOpenGLWindow(HINSTANCE instance);
-

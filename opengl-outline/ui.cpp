@@ -76,6 +76,7 @@ void Ui_NewFrame(void)
     static int outlineImplementation = 0;
     static int outlineThickness = 4;
     static bool outlineAntialiasing = true;
+    static bool interiorOutline = false;
     static bool msaa8Enabled = false;
     static std::string loadedObjFilename = "Default cube";
     Renderer_SetBackgroundColor(backgroundColor[0], backgroundColor[1], backgroundColor[2]);
@@ -84,6 +85,7 @@ void Ui_NewFrame(void)
     if (outlineThickness > 100) outlineThickness = 100;
     Renderer_SetOutlineThickness((float)outlineThickness);
     Renderer_SetOutlineAntialiasing(outlineAntialiasing);
+    Renderer_SetInteriorOutline(interiorOutline);
     Renderer_SetMsaaEnabled(msaa8Enabled);
 
     ImGui::Begin("OpenGL Outline Demo");
@@ -125,6 +127,7 @@ void Ui_NewFrame(void)
 
     ImGui::Checkbox("MSAA x8", &msaa8Enabled);
     ImGui::Checkbox("Antialiased outline", &outlineAntialiasing);
+    ImGui::Checkbox("Interior outline", &interiorOutline);
     ImGui::Text("Outline thickness (px)");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(160.0f);

@@ -6,6 +6,7 @@ uniform vec2 texelSize;
 uniform int outlineImplementation;
 uniform float outlineWidth;
 uniform int outlineAntialiasing;
+uniform int interiorOutline;
 out vec4 color;
 
 uint ReadStencil(ivec2 pixel, ivec2 size)
@@ -108,6 +109,30 @@ float ComputeGaussianCoverage(ivec2 pixel, ivec2 size)
     return blurredMask >= 0.05 ? 1.0 : 0.0;
 }
 
+float ComputeInteriorCoverage(ivec2 pixel, ivec2 size, int radius)
+{
+    float nearestDistance = 1.0e30;
+    for (int y = -radius; y <= radius; ++y)
+    {
+        for (int x = -radius; x <= radius; ++x)
+        {
+            if (ReadStencil(pixel + ivec2(x, y), size) == 0u)
+            {
+                nearestDistance = min(nearestDistance, length(vec2(x, y)));
+            }
+        }
+    }
+    if (nearestDistance >= 1.0e29)
+    {
+        return 0.0;
+    }
+    if (outlineAntialiasing != 0)
+    {
+        return 1.0 - smoothstep(float(radius) - 1.0, float(radius) + 1.0, nearestDistance);
+    }
+    return nearestDistance <= float(radius) ? 1.0 : 0.0;
+}
+
 void main()
 {
     vec4 scene = texture(sceneColor, uv);
@@ -149,7 +174,7 @@ void main()
     }
     if (center != 0u)
     {
-        outlineCoverage = 0.0;
+        outlineCoverage = interiorOutline != 0 ? ComputeInteriorCoverage(pixel, size, radius) : 0.0;
     }
     vec3 result = mix(scene.rgb, vec3(1.0, 0.0, 0.0), outlineCoverage);
     color = vec4(result, 1.0);

@@ -189,6 +189,7 @@ static GLint g_screenTexelSize = -1;
 static GLint g_screenOutlineImplementation = -1;
 static GLint g_screenOutlineWidth = -1;
 static GLint g_screenOutlineAntialiasing = -1;
+static GLint g_screenInteriorOutline = -1;
 static GLint g_jfaSeedStencil = -1;
 static GLint g_jfaStepInput = -1;
 static GLint g_jfaStepJumpDistance = -1;
@@ -197,6 +198,7 @@ static GLint g_jfaComposeStencil = -1;
 static GLint g_jfaComposeResult = -1;
 static GLint g_jfaComposeOutlineWidth = -1;
 static GLint g_jfaComposeAntialiasing = -1;
+static GLint g_jfaComposeInteriorOutline = -1;
 static GLint g_betterJfaSeedStencil = -1;
 static GLint g_betterJfaAxisInput = -1;
 static GLint g_betterJfaAxisWidth = -1;
@@ -205,6 +207,7 @@ static GLint g_betterJfaComposeStencil = -1;
 static GLint g_betterJfaComposeResult = -1;
 static GLint g_betterJfaComposeOutlineWidth = -1;
 static GLint g_betterJfaComposeAntialiasing = -1;
+static GLint g_betterJfaComposeInteriorOutline = -1;
 static GLint g_presentTexture = -1;
 int g_width = 960;
 int g_height = 640;
@@ -217,6 +220,7 @@ static float g_backgroundColor[3] = { 1.0f, 1.0f, 1.0f };
 static int g_outlineImplementation = 0;
 static float g_outlineWidthPixels = 4.0f;
 static bool g_outlineAntialiasing = true;
+static bool g_interiorOutline = false;
 static bool g_msaaEnabled = false;
 static float g_panX = 0.0f;
 static float g_panY = 0.0f;
@@ -908,6 +912,7 @@ static void RenderJfaOutline(void)
     glUniform1i(g_jfaComposeResult, 2);
     glUniform1f(g_jfaComposeOutlineWidth, g_outlineWidthPixels);
     glUniform1i(g_jfaComposeAntialiasing, g_outlineAntialiasing ? 1 : 0);
+    glUniform1i(g_jfaComposeInteriorOutline, g_interiorOutline ? 1 : 0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, g_colorTexture);
     glActiveTexture(GL_TEXTURE0 + 1);
@@ -1002,6 +1007,7 @@ static void RenderBetterJfaOutline(void)
     glUniform1i(g_betterJfaComposeResult, 2);
     glUniform1f(g_betterJfaComposeOutlineWidth, g_outlineWidthPixels);
     glUniform1i(g_betterJfaComposeAntialiasing, g_outlineAntialiasing ? 1 : 0);
+    glUniform1i(g_betterJfaComposeInteriorOutline, g_interiorOutline ? 1 : 0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, g_colorTexture);
     glActiveTexture(GL_TEXTURE0 + 1);
@@ -1055,6 +1061,7 @@ bool Renderer_Initialize(void)
     g_screenOutlineImplementation = glGetUniformLocation(g_screenProgram, "outlineImplementation");
     g_screenOutlineWidth = glGetUniformLocation(g_screenProgram, "outlineWidth");
     g_screenOutlineAntialiasing = glGetUniformLocation(g_screenProgram, "outlineAntialiasing");
+    g_screenInteriorOutline = glGetUniformLocation(g_screenProgram, "interiorOutline");
     g_jfaSeedStencil = glGetUniformLocation(g_jfaSeedProgram, "stencilMask");
     g_jfaStepInput = glGetUniformLocation(g_jfaStepProgram, "jfaInput");
     g_jfaStepJumpDistance = glGetUniformLocation(g_jfaStepProgram, "jumpDistance");
@@ -1063,6 +1070,7 @@ bool Renderer_Initialize(void)
     g_jfaComposeResult = glGetUniformLocation(g_jfaComposeProgram, "jfaResult");
     g_jfaComposeOutlineWidth = glGetUniformLocation(g_jfaComposeProgram, "outlineWidth");
     g_jfaComposeAntialiasing = glGetUniformLocation(g_jfaComposeProgram, "outlineAntialiasing");
+    g_jfaComposeInteriorOutline = glGetUniformLocation(g_jfaComposeProgram, "interiorOutline");
     g_betterJfaSeedStencil = glGetUniformLocation(g_betterJfaSeedProgram, "stencilMask");
     g_betterJfaAxisInput = glGetUniformLocation(g_betterJfaAxisProgram, "jfaInput");
     g_betterJfaAxisWidth = glGetUniformLocation(g_betterJfaAxisProgram, "axisWidth");
@@ -1071,6 +1079,7 @@ bool Renderer_Initialize(void)
     g_betterJfaComposeResult = glGetUniformLocation(g_betterJfaComposeProgram, "jfaResult");
     g_betterJfaComposeOutlineWidth = glGetUniformLocation(g_betterJfaComposeProgram, "outlineWidth");
     g_betterJfaComposeAntialiasing = glGetUniformLocation(g_betterJfaComposeProgram, "outlineAntialiasing");
+    g_betterJfaComposeInteriorOutline = glGetUniformLocation(g_betterJfaComposeProgram, "interiorOutline");
     g_presentTexture = glGetUniformLocation(g_presentProgram, "screenTexture");
 
     glGenVertexArrays(1, &g_cubeVao);
@@ -1152,6 +1161,7 @@ void Renderer_Render(void)
         glUniform1i(g_screenOutlineImplementation, g_outlineImplementation);
         glUniform1f(g_screenOutlineWidth, g_outlineWidthPixels);
         glUniform1i(g_screenOutlineAntialiasing, g_outlineAntialiasing ? 1 : 0);
+        glUniform1i(g_screenInteriorOutline, g_interiorOutline ? 1 : 0);
         glUniform2f(g_screenTexelSize, 1.0f / (float)g_width, 1.0f / (float)g_height);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, g_colorTexture);
@@ -1318,6 +1328,11 @@ void Renderer_SetOutlineThickness(float pixels)
 void Renderer_SetOutlineAntialiasing(bool enabled)
 {
     g_outlineAntialiasing = enabled;
+}
+
+void Renderer_SetInteriorOutline(bool enabled)
+{
+    g_interiorOutline = enabled;
 }
 
 void Renderer_SetMsaaEnabled(bool enabled)
