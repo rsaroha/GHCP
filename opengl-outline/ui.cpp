@@ -64,12 +64,10 @@ bool Ui_Initialize(HWND window)
 
     ImFontConfig fontConfig;
     fontConfig.SizePixels = 13.0f;
-    io.Fonts->AddFontDefault(&fontConfig);
-    io.FontGlobalScale = 1.f;
-
-    io.Fonts->AddFontDefaultVector();
+    io.Fonts->AddFontDefaultVector(&fontConfig);
 
     ImGui::StyleColorsDark();
+    ImGui::GetStyle().Colors[ImGuiCol_Text] = ImVec4(1.0f, 1.0f, 1.0f, 1.0f);
     if (!ImGui_ImplWin32_Init(window)) return false;
     if (!ImGui_ImplOpenGL3_Init("#version 330")) return false;
     return true;
@@ -125,28 +123,30 @@ void Ui_NewFrame(void)
     ImGui::Separator();
     ImGui::Text("Outline implementation");
     DrawOutlineModeButton("Brute-force", 0, &outlineImplementation);
-    ImGui::SameLine();
+    
     DrawOutlineModeButton("Cross kernel", 1, &outlineImplementation);
-    ImGui::SameLine();
+    
     DrawOutlineModeButton("Jump flood", 2, &outlineImplementation);
-    ImGui::SameLine();
+    
     DrawOutlineModeButton("Gaussian blur", 3, &outlineImplementation);
-    ImGui::SameLine();
+    
     DrawOutlineModeButton("Better-JFA", 4, &outlineImplementation);
+
+    ImGui::Separator();
 
     ImGui::Checkbox("MSAA x8", &msaa8Enabled);
     ImGui::Checkbox("Antialiased outline", &outlineAntialiasing);
     ImGui::Checkbox("Interior outline", &interiorOutline);
     ImGui::Text("Outline thickness (px)");
-    ImGui::SameLine();
+    //ImGui::SameLine();
     ImGui::SetNextItemWidth(160.0f);
     ImGui::SliderInt("##OutlineThicknessSlider", &outlineThickness, 1, 100);
     /*ImGui::SameLine();
     if (ImGui::Button("-"))
     {
         if (outlineThickness > 1) --outlineThickness;
-    }*/
-    ImGui::SameLine();
+    } */
+    ImGui::SameLine(); 
     ImGui::SetNextItemWidth(100.0f);
     if (ImGui::InputInt("##OutlineThickness", &outlineThickness, 1, 1))
     {
@@ -162,6 +162,8 @@ void Ui_NewFrame(void)
     ImGuiIO& io = ImGui::GetIO();
     float framesPerSecond = io.Framerate;
     float millisecondsPerFrame = framesPerSecond > 0.0f ? 1000.0f / framesPerSecond : 0.0f;
+
+    ImGui::Separator();
     ImGui::Text("FPS: %.1f (%.2f ms/frame)", framesPerSecond, millisecondsPerFrame);
 
     ImGui::End();
