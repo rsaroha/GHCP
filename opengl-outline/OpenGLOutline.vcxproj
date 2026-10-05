@@ -90,6 +90,7 @@
     <ClCompile Include="renderer.cpp" />
     <ClCompile Include="ui.cpp" />
     <ClInclude Include="renderer.h" />
+    <ClInclude Include="..\third_party\tiny_obj_loader.h" />
     <ClInclude Include="ui.h" />
   </ItemGroup>
   <ItemGroup>

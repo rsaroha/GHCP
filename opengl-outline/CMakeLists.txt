@@ -21,6 +21,7 @@ set(APP_SOURCES
     main.cpp
     renderer.cpp
     renderer.h
+    ../third_party/tiny_obj_loader.h
     ui.cpp
     ui.h
 )

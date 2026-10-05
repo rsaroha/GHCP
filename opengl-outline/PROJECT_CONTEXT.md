@@ -210,6 +210,9 @@ Win32 mouse messages are first sent to ImGui. If ImGui captures the mouse, model
   - `E:\copilot\third_party\imgui\backends\`
 - The project includes ImGui core and Win32/OpenGL3 backend source files directly.
 - The UI includes a background color picker and controls for outline rendering.
+- The `Load OBJ...` button opens a native file picker and loads triangle geometry
+  with `third_party/tiny_obj_loader.h`. Loaded models are centered and uniformly
+  scaled to fit the existing camera; the default cube is used at startup.
 - The UI includes buttons to switch outline implementation:
   - `Brute-force` (9x9 neighborhood)
   - `Cross kernel` (horizontal + vertical neighborhood)

@@ -3,8 +3,32 @@
 #include "imgui.h"
 #include "backends/imgui_impl_opengl3.h"
 #include "backends/imgui_impl_win32.h"
+#include <commdlg.h>
+#include <string>
 #include "renderer.h"
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam);
+
+#pragma comment(lib, "comdlg32.lib")
+
+static bool OpenObjFileDialog(HWND window, std::string& filename)
+{
+    char path[MAX_PATH] = {};
+    OPENFILENAMEA dialog = {};
+    dialog.lStructSize = sizeof(dialog);
+    dialog.hwndOwner = window;
+    dialog.lpstrFilter = "Wavefront OBJ files (*.obj)\0*.obj\0All files (*.*)\0*.*\0";
+    dialog.lpstrFile = path;
+    dialog.nMaxFile = sizeof(path);
+    dialog.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    dialog.lpstrDefExt = "obj";
+    if (!GetOpenFileNameA(&dialog))
+    {
+        return false;
+    }
+
+    filename = path;
+    return true;
+}
 
 static bool DrawOutlineModeButton(const char* label, int mode, int* selectedMode)
 {
@@ -53,6 +77,7 @@ void Ui_NewFrame(void)
     static float outlineThickness = 4.0f;
     static bool outlineAntialiasing = true;
     static bool msaa8Enabled = false;
+    static std::string loadedObjFilename = "Default cube";
     Renderer_SetBackgroundColor(backgroundColor[0], backgroundColor[1], backgroundColor[2]);
     Renderer_SetOutlineImplementation(outlineImplementation);
     Renderer_SetOutlineThickness(outlineThickness);
@@ -72,6 +97,17 @@ void Ui_NewFrame(void)
         ImGui::ColorPicker3("##BackgroundColorPicker", backgroundColor, ImGuiColorEditFlags_DisplayRGB | ImGuiColorEditFlags_DisplayHSV | ImGuiColorEditFlags_DisplayHex);
         ImGui::EndPopup();
     }
+
+    if (ImGui::Button("Load OBJ..."))
+    {
+        std::string filename;
+        if (OpenObjFileDialog(g_window, filename) && Renderer_LoadObj(filename.c_str()))
+        {
+            loadedObjFilename = filename;
+        }
+    }
+    ImGui::SameLine();
+    ImGui::TextWrapped("%s", loadedObjFilename.c_str());
 
     ImGui::Separator();
     ImGui::Text("Outline implementation");

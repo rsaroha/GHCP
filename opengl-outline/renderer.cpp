@@ -6,7 +6,10 @@
 #include <iterator>
 #include <stdio.h>
 #include <string>
+#include <vector>
 
+#define TINYOBJLOADER_IMPLEMENTATION
+#include "../third_party/tiny_obj_loader.h"
 #pragma comment(lib, "opengl32.lib")
 
 #define GL_ARRAY_BUFFER 0x8892
@@ -157,6 +160,7 @@ HDC g_deviceContext = 0;
 HWND g_window = 0;
 static GLuint g_cubeVao = 0;
 static GLuint g_cubeVbo = 0;
+static GLsizei g_meshVertexCount = 0;
 static GLuint g_cubeProgram = 0;
 static GLuint g_screenProgram = 0;
 static GLuint g_jfaSeedProgram = 0;
@@ -209,6 +213,169 @@ static bool g_rotating = false;
 static bool g_panning = false;
 static int g_lastMouseX = 0;
 static int g_lastMouseY = 0;
+
+static void UploadMeshVertices(const std::vector<float>& vertices)
+{
+    glBindVertexArray(g_cubeVao);
+    glBindBuffer(GL_ARRAY_BUFFER, g_cubeVbo);
+    glBufferData(GL_ARRAY_BUFFER, vertices.size() * sizeof(float), vertices.data(), GL_STATIC_DRAW);
+    g_meshVertexCount = (GLsizei)(vertices.size() / 6);
+    glBindVertexArray(0);
+}
+
+static void UploadDefaultMesh(void)
+{
+    const float vertices[] = {
+        -1,-1,1, 0,0,1,   1,-1,1, 0,0,1,   1,1,1, 0,0,1,
+        -1,-1,1, 0,0,1,   1,1,1, 0,0,1,  -1,1,1, 0,0,1,
+         1,-1,-1, 0,0,-1, -1,-1,-1, 0,0,-1, -1,1,-1, 0,0,-1,
+         1,-1,-1, 0,0,-1, -1,1,-1, 0,0,-1,  1,1,-1, 0,0,-1,
+        -1,-1,-1, -1,0,0, -1,-1,1, -1,0,0, -1,1,1, -1,0,0,
+        -1,-1,-1, -1,0,0, -1,1,1, -1,0,0, -1,1,-1, -1,0,0,
+         1,-1,1, 1,0,0,   1,-1,-1, 1,0,0,  1,1,-1, 1,0,0,
+         1,-1,1, 1,0,0,   1,1,-1, 1,0,0,   1,1,1, 1,0,0,
+        -1,1,1, 0,1,0,    1,1,1, 0,1,0,    1,1,-1, 0,1,0,
+        -1,1,1, 0,1,0,    1,1,-1, 0,1,0,   -1,1,-1, 0,1,0,
+        -1,-1,-1, 0,-1,0,  1,-1,-1, 0,-1,0,  1,-1,1, 0,-1,0,
+        -1,-1,-1, 0,-1,0,  1,-1,1, 0,-1,0, -1,-1,1, 0,-1,0
+    };
+    UploadMeshVertices(std::vector<float>(vertices, vertices + sizeof(vertices) / sizeof(float)));
+}
+
+static bool LoadObjMesh(const char* filename, std::string& errorMessage)
+{
+    tinyobj::attrib_t attrib;
+    std::vector<tinyobj::shape_t> shapes;
+    std::vector<tinyobj::material_t> materials;
+    std::string warning;
+    std::string error;
+    if (!tinyobj::LoadObj(&attrib, &shapes, &materials, &warning, &error, filename, nullptr, true, true))
+    {
+        errorMessage = error.empty() ? "The OBJ file could not be loaded." : error;
+        return false;
+    }
+
+    if (attrib.vertices.empty())
+    {
+        errorMessage = "The OBJ file does not contain any vertex positions.";
+        return false;
+    }
+
+    float minimum[3] = { attrib.vertices[0], attrib.vertices[1], attrib.vertices[2] };
+    float maximum[3] = { minimum[0], minimum[1], minimum[2] };
+    for (size_t index = 0; index < attrib.vertices.size(); index += 3)
+    {
+        for (int component = 0; component < 3; ++component)
+        {
+            minimum[component] = fminf(minimum[component], attrib.vertices[index + component]);
+            maximum[component] = fmaxf(maximum[component], attrib.vertices[index + component]);
+        }
+    }
+
+    const float center[3] = {
+        (minimum[0] + maximum[0]) * 0.5f,
+        (minimum[1] + maximum[1]) * 0.5f,
+        (minimum[2] + maximum[2]) * 0.5f
+    };
+    const float extent = fmaxf(maximum[0] - minimum[0], fmaxf(maximum[1] - minimum[1], maximum[2] - minimum[2]));
+    if (extent <= 0.0f)
+    {
+        errorMessage = "The OBJ file has no measurable geometry.";
+        return false;
+    }
+    const float scale = 2.0f / extent;
+    std::vector<float> vertices;
+
+    for (const tinyobj::shape_t& shape : shapes)
+    {
+        size_t indexOffset = 0;
+        for (size_t face = 0; face < shape.mesh.num_face_vertices.size(); ++face)
+        {
+            const size_t faceVertexCount = shape.mesh.num_face_vertices[face];
+            if (faceVertexCount != 3 || indexOffset + faceVertexCount > shape.mesh.indices.size())
+            {
+                errorMessage = "The OBJ file contains a non-triangulated or invalid face.";
+                return false;
+            }
+
+            const tinyobj::index_t& firstIndex = shape.mesh.indices[indexOffset];
+            const tinyobj::index_t& secondIndex = shape.mesh.indices[indexOffset + 1];
+            const tinyobj::index_t& thirdIndex = shape.mesh.indices[indexOffset + 2];
+            const int positionIndices[3] = { firstIndex.vertex_index, secondIndex.vertex_index, thirdIndex.vertex_index };
+            for (int vertex = 0; vertex < 3; ++vertex)
+            {
+                if (positionIndices[vertex] < 0 || (size_t)(positionIndices[vertex] * 3 + 2) >= attrib.vertices.size())
+                {
+                    errorMessage = "The OBJ file contains an invalid position index.";
+                    return false;
+                }
+            }
+
+            const float* firstPosition = &attrib.vertices[positionIndices[0] * 3];
+            const float* secondPosition = &attrib.vertices[positionIndices[1] * 3];
+            const float* thirdPosition = &attrib.vertices[positionIndices[2] * 3];
+            const float edgeA[3] = {
+                secondPosition[0] - firstPosition[0],
+                secondPosition[1] - firstPosition[1],
+                secondPosition[2] - firstPosition[2]
+            };
+            const float edgeB[3] = {
+                thirdPosition[0] - firstPosition[0],
+                thirdPosition[1] - firstPosition[1],
+                thirdPosition[2] - firstPosition[2]
+            };
+            float faceNormal[3] = {
+                edgeA[1] * edgeB[2] - edgeA[2] * edgeB[1],
+                edgeA[2] * edgeB[0] - edgeA[0] * edgeB[2],
+                edgeA[0] * edgeB[1] - edgeA[1] * edgeB[0]
+            };
+            const float normalLength = sqrtf(faceNormal[0] * faceNormal[0] + faceNormal[1] * faceNormal[1] + faceNormal[2] * faceNormal[2]);
+            if (normalLength > 0.0f)
+            {
+                faceNormal[0] /= normalLength;
+                faceNormal[1] /= normalLength;
+                faceNormal[2] /= normalLength;
+            }
+
+            for (int vertex = 0; vertex < 3; ++vertex)
+            {
+                const tinyobj::index_t& objIndex = shape.mesh.indices[indexOffset + vertex];
+                const float* position = &attrib.vertices[positionIndices[vertex] * 3];
+                vertices.push_back((position[0] - center[0]) * scale);
+                vertices.push_back((position[1] - center[1]) * scale);
+                vertices.push_back((position[2] - center[2]) * scale);
+
+                float normal[3] = { faceNormal[0], faceNormal[1], faceNormal[2] };
+                if (objIndex.normal_index >= 0 && (size_t)(objIndex.normal_index * 3 + 2) < attrib.normals.size())
+                {
+                    normal[0] = attrib.normals[objIndex.normal_index * 3];
+                    normal[1] = attrib.normals[objIndex.normal_index * 3 + 1];
+                    normal[2] = attrib.normals[objIndex.normal_index * 3 + 2];
+                    const float length = sqrtf(normal[0] * normal[0] + normal[1] * normal[1] + normal[2] * normal[2]);
+                    if (length > 0.0f)
+                    {
+                        normal[0] /= length;
+                        normal[1] /= length;
+                        normal[2] /= length;
+                    }
+                }
+                vertices.push_back(normal[0]);
+                vertices.push_back(normal[1]);
+                vertices.push_back(normal[2]);
+            }
+            indexOffset += faceVertexCount;
+        }
+    }
+
+    if (vertices.empty())
+    {
+        errorMessage = "The OBJ file does not contain any triangular faces.";
+        return false;
+    }
+
+    UploadMeshVertices(vertices);
+    return true;
+}
 
 static void Fail(const char* message)
 {
@@ -785,24 +952,16 @@ bool Renderer_Initialize(void)
     g_jfaComposeAntialiasing = glGetUniformLocation(g_jfaComposeProgram, "outlineAntialiasing");
     g_presentTexture = glGetUniformLocation(g_presentProgram, "screenTexture");
 
-    const float vertices[] = {
-        -1,-1,1, 0,0,1,  1,-1,1, 0,0,1,  1,1,1, 0,0,1,  -1,1,1, 0,0,1,
-         1,-1,-1, 0,0,-1, -1,-1,-1, 0,0,-1, -1,1,-1, 0,0,-1,  1,1,-1, 0,0,-1,
-        -1,-1,-1, -1,0,0, -1,-1,1, -1,0,0, -1,1,1, -1,0,0, -1,1,-1, -1,0,0,
-         1,-1,1, 1,0,0,  1,-1,-1, 1,0,0,  1,1,-1, 1,0,0,  1,1,1, 1,0,0,
-        -1,1,1, 0,1,0,  1,1,1, 0,1,0,  1,1,-1, 0,1,0, -1,1,-1, 0,1,0,
-        -1,-1,-1, 0,-1,0,  1,-1,-1, 0,-1,0,  1,-1,1, 0,-1,0, -1,-1,1, 0,-1,0
-    };
     glGenVertexArrays(1, &g_cubeVao);
     glBindVertexArray(g_cubeVao);
     glGenBuffers(1, &g_cubeVbo);
     glBindBuffer(GL_ARRAY_BUFFER, g_cubeVbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
     glEnableVertexAttribArray(0);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
     glBindVertexArray(0);
+    UploadDefaultMesh();
     if (!CreateRenderTarget(g_width, g_height))
     {
         Fail("The texture-backed framebuffer is incomplete.");
@@ -833,10 +992,7 @@ void Renderer_Render(void)
     glUniformMatrix4fv(g_cubeMatrix, 1, GL_FALSE, mvp);
     glUniformMatrix4fv(g_cubeModelView, 1, GL_FALSE, modelView);
     glBindVertexArray(g_cubeVao);
-    for (int face = 0; face < 6; ++face)
-    {
-        glDrawArrays(GL_QUADS, face * 4, 4);
-    }
+    glDrawArrays(GL_TRIANGLES, 0, g_meshVertexCount);
     DebugMessage("End render pass");
 
     if (g_msaaEnabled)
@@ -975,6 +1131,18 @@ void Renderer_SetBackgroundColor(float red, float green, float blue)
     g_backgroundColor[0] = red;
     g_backgroundColor[1] = green;
     g_backgroundColor[2] = blue;
+}
+
+bool Renderer_LoadObj(const char* filename)
+{
+    std::string errorMessage;
+    if (!LoadObjMesh(filename, errorMessage))
+    {
+        MessageBoxA(g_window, errorMessage.c_str(), "OBJ load error", MB_ICONERROR | MB_OK);
+        return false;
+    }
+
+    return true;
 }
 
 void Renderer_SetOutlineImplementation(int implementation)
