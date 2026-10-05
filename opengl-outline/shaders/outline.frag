@@ -17,21 +17,21 @@ uint ReadStencil(ivec2 pixel, ivec2 size)
 int ComputeOutlineRadius()
 {
     int radius = int(outlineWidth + 0.5);
-    radius = clamp(radius, 1, 32);
+    radius = clamp(radius, 1, 100);
     return radius;
 }
 
 float ComputeBruteForceDistance(ivec2 pixel, ivec2 size, int radius, uint targetStencil)
 {
     float nearestDistance = 1.0e30;
-    for (int y = -32; y <= 32; ++y)
+    for (int y = -radius; y <= radius; ++y)
     {
         if (abs(y) > radius)
         {
             continue;
         }
 
-        for (int x = -32; x <= 32; ++x)
+        for (int x = -radius; x <= radius; ++x)
         {
             if (abs(x) > radius)
             {
@@ -50,7 +50,7 @@ float ComputeBruteForceDistance(ivec2 pixel, ivec2 size, int radius, uint target
 float ComputeCrossDistance(ivec2 pixel, ivec2 size, int radius, uint targetStencil)
 {
     float nearestDistance = 1.0e30;
-    for (int step = -32; step <= 32; ++step)
+    for (int step = -radius; step <= radius; ++step)
     {
         if (abs(step) > radius)
         {
@@ -76,14 +76,14 @@ float ComputeGaussianCoverage(ivec2 pixel, ivec2 size)
     float weightedMask = 0.0;
     float totalWeight = 0.0;
 
-    for (int y = -32; y <= 32; ++y)
+    for (int y = -radius; y <= radius; ++y)
     {
         if (abs(y) > radius)
         {
             continue;
         }
 
-        for (int x = -32; x <= 32; ++x)
+        for (int x = -radius; x <= radius; ++x)
         {
             if (abs(x) > radius)
             {
@@ -116,33 +116,36 @@ void main()
     int radius = ComputeOutlineRadius();
     uint center = ReadStencil(pixel, size);
     uint targetStencil = 1u;
-    float nearestDistance;
     float outlineCoverage;
 
     if (outlineImplementation == 3)
     {
         outlineCoverage = center == 0u ? ComputeGaussianCoverage(pixel, size) : 0.0;
     }
-    else if (outlineImplementation == 0)
-    {
-        nearestDistance = ComputeBruteForceDistance(pixel, size, radius, targetStencil);
-    }
     else
     {
-        nearestDistance = ComputeCrossDistance(pixel, size, radius, targetStencil);
-    }
+        float nearestDistance;
+        if (outlineImplementation == 0)
+        {
+            nearestDistance = ComputeBruteForceDistance(pixel, size, radius, targetStencil);
+        }
+        else
+        {
+            nearestDistance = ComputeCrossDistance(pixel, size, radius, targetStencil);
+        }
 
-    if (outlineImplementation != 3 && outlineAntialiasing != 0)
-    {
-        float antialiasWidth = max(fwidth(nearestDistance), 1.0);
-        outlineCoverage = 1.0 - smoothstep(
-            outlineWidth - antialiasWidth,
-            outlineWidth + antialiasWidth,
-            nearestDistance);
-    }
-    else
-    {
-        outlineCoverage = nearestDistance <= outlineWidth ? 1.0 : 0.0;
+        if (outlineAntialiasing != 0)
+        {
+            float antialiasWidth = max(fwidth(nearestDistance), 1.0);
+            outlineCoverage = 1.0 - smoothstep(
+                outlineWidth - antialiasWidth,
+                outlineWidth + antialiasWidth,
+                nearestDistance);
+        }
+        else
+        {
+            outlineCoverage = nearestDistance <= outlineWidth ? 1.0 : 0.0;
+        }
     }
     if (center != 0u)
     {

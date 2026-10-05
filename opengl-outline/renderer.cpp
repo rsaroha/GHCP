@@ -166,6 +166,9 @@ static GLuint g_screenProgram = 0;
 static GLuint g_jfaSeedProgram = 0;
 static GLuint g_jfaStepProgram = 0;
 static GLuint g_jfaComposeProgram = 0;
+static GLuint g_betterJfaSeedProgram = 0;
+static GLuint g_betterJfaAxisProgram = 0;
+static GLuint g_betterJfaComposeProgram = 0;
 static GLuint g_presentProgram = 0;
 static GLuint g_framebuffer = 0;
 static GLuint g_msaaFramebuffer = 0;
@@ -194,6 +197,14 @@ static GLint g_jfaComposeStencil = -1;
 static GLint g_jfaComposeResult = -1;
 static GLint g_jfaComposeOutlineWidth = -1;
 static GLint g_jfaComposeAntialiasing = -1;
+static GLint g_betterJfaSeedStencil = -1;
+static GLint g_betterJfaAxisInput = -1;
+static GLint g_betterJfaAxisWidth = -1;
+static GLint g_betterJfaComposeScene = -1;
+static GLint g_betterJfaComposeStencil = -1;
+static GLint g_betterJfaComposeResult = -1;
+static GLint g_betterJfaComposeOutlineWidth = -1;
+static GLint g_betterJfaComposeAntialiasing = -1;
 static GLint g_presentTexture = -1;
 int g_width = 960;
 int g_height = 640;
@@ -905,6 +916,100 @@ static void RenderJfaOutline(void)
     glBindTexture(GL_TEXTURE_2D, jfaResult);
     glDrawArrays(GL_TRIANGLES, 0, 3);
 }
+
+static GLuint RunBetterJfaPasses(void)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, g_jfaFramebuffer);
+    glViewport(0, 0, g_width, g_height);
+    glDisable(GL_DEPTH_TEST);
+
+    if (!AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_jfaTextureA, "better-jfa-seed-target"))
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return 0;
+    }
+
+    glUseProgram(g_betterJfaSeedProgram);
+    glUniform1i(g_betterJfaSeedStencil, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    GLuint inputTexture = g_jfaTextureA;
+    GLuint outputTexture = g_jfaTextureB;
+    int iterationCount = 0;
+    int stepWidth = 1;
+    const int requiredWidth = (int)ceil(g_outlineWidthPixels + 1.0f);
+    while (stepWidth < requiredWidth)
+    {
+        stepWidth <<= 1;
+        ++iterationCount;
+    }
+
+    for (int iteration = iterationCount - 1; iteration >= 0; --iteration)
+    {
+        const float width = (float)(1 << iteration) + 0.5f;
+
+        if (!AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, outputTexture, "better-jfa-horizontal"))
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return 0;
+        }
+        glUseProgram(g_betterJfaAxisProgram);
+        glUniform1i(g_betterJfaAxisInput, 0);
+        glUniform2f(g_betterJfaAxisWidth, width, 0.0f);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, inputTexture);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+
+        GLuint temporary = inputTexture;
+        inputTexture = outputTexture;
+        outputTexture = temporary;
+
+        if (!AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, outputTexture, "better-jfa-vertical"))
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return 0;
+        }
+        glUniform2f(g_betterJfaAxisWidth, 0.0f, width);
+        glBindTexture(GL_TEXTURE_2D, inputTexture);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+
+        temporary = inputTexture;
+        inputTexture = outputTexture;
+        outputTexture = temporary;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return inputTexture;
+}
+
+static void RenderBetterJfaOutline(void)
+{
+    GLuint jfaResult = RunBetterJfaPasses();
+    if (!jfaResult)
+    {
+        return;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, g_outlineFramebuffer);
+    glViewport(0, 0, g_width, g_height);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_DEPTH_TEST);
+    glUseProgram(g_betterJfaComposeProgram);
+    glUniform1i(g_betterJfaComposeScene, 0);
+    glUniform1i(g_betterJfaComposeStencil, 1);
+    glUniform1i(g_betterJfaComposeResult, 2);
+    glUniform1f(g_betterJfaComposeOutlineWidth, g_outlineWidthPixels);
+    glUniform1i(g_betterJfaComposeAntialiasing, g_outlineAntialiasing ? 1 : 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_colorTexture);
+    glActiveTexture(GL_TEXTURE0 + 1);
+    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+    glActiveTexture(GL_TEXTURE0 + 2);
+    glBindTexture(GL_TEXTURE_2D, jfaResult);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+}
 bool Renderer_Initialize(void)
 {
     if (!LoadFunctions())
@@ -915,6 +1020,7 @@ bool Renderer_Initialize(void)
 
     std::string cubeVertex, cubeFragment, screenVertex, screenFragment, presentFragment;
     std::string jfaSeedFragment, jfaStepFragment, jfaComposeFragment;
+    std::string betterJfaSeedFragment, betterJfaAxisFragment, betterJfaComposeFragment;
     if (!LoadShaderSource("cube.vert", cubeVertex) ||
         !LoadShaderSource("cube.frag", cubeFragment) ||
         !LoadShaderSource("fullscreen.vert", screenVertex) ||
@@ -922,6 +1028,9 @@ bool Renderer_Initialize(void)
         !LoadShaderSource("jfa_seed.frag", jfaSeedFragment) ||
         !LoadShaderSource("jfa_step.frag", jfaStepFragment) ||
         !LoadShaderSource("jfa_compose.frag", jfaComposeFragment) ||
+        !LoadShaderSource("better_jfa_seed.frag", betterJfaSeedFragment) ||
+        !LoadShaderSource("better_jfa_axis.frag", betterJfaAxisFragment) ||
+        !LoadShaderSource("better_jfa_compose.frag", betterJfaComposeFragment) ||
         !LoadShaderSource("present.frag", presentFragment))
     {
         Fail("Unable to load shader files from the shaders directory.");
@@ -932,8 +1041,12 @@ bool Renderer_Initialize(void)
     g_jfaSeedProgram = CreateProgram(screenVertex.c_str(), jfaSeedFragment.c_str());
     g_jfaStepProgram = CreateProgram(screenVertex.c_str(), jfaStepFragment.c_str());
     g_jfaComposeProgram = CreateProgram(screenVertex.c_str(), jfaComposeFragment.c_str());
+    g_betterJfaSeedProgram = CreateProgram(screenVertex.c_str(), betterJfaSeedFragment.c_str());
+    g_betterJfaAxisProgram = CreateProgram(screenVertex.c_str(), betterJfaAxisFragment.c_str());
+    g_betterJfaComposeProgram = CreateProgram(screenVertex.c_str(), betterJfaComposeFragment.c_str());
     g_presentProgram = CreateProgram(screenVertex.c_str(), presentFragment.c_str());
-    if (!g_cubeProgram || !g_screenProgram || !g_jfaSeedProgram || !g_jfaStepProgram || !g_jfaComposeProgram || !g_presentProgram) return false;
+    if (!g_cubeProgram || !g_screenProgram || !g_jfaSeedProgram || !g_jfaStepProgram || !g_jfaComposeProgram ||
+        !g_betterJfaSeedProgram || !g_betterJfaAxisProgram || !g_betterJfaComposeProgram || !g_presentProgram) return false;
     g_cubeMatrix = glGetUniformLocation(g_cubeProgram, "mvp");
     g_cubeModelView = glGetUniformLocation(g_cubeProgram, "modelView");
     g_screenTexture = glGetUniformLocation(g_screenProgram, "sceneColor");
@@ -950,6 +1063,14 @@ bool Renderer_Initialize(void)
     g_jfaComposeResult = glGetUniformLocation(g_jfaComposeProgram, "jfaResult");
     g_jfaComposeOutlineWidth = glGetUniformLocation(g_jfaComposeProgram, "outlineWidth");
     g_jfaComposeAntialiasing = glGetUniformLocation(g_jfaComposeProgram, "outlineAntialiasing");
+    g_betterJfaSeedStencil = glGetUniformLocation(g_betterJfaSeedProgram, "stencilMask");
+    g_betterJfaAxisInput = glGetUniformLocation(g_betterJfaAxisProgram, "jfaInput");
+    g_betterJfaAxisWidth = glGetUniformLocation(g_betterJfaAxisProgram, "axisWidth");
+    g_betterJfaComposeScene = glGetUniformLocation(g_betterJfaComposeProgram, "sceneColor");
+    g_betterJfaComposeStencil = glGetUniformLocation(g_betterJfaComposeProgram, "stencilMask");
+    g_betterJfaComposeResult = glGetUniformLocation(g_betterJfaComposeProgram, "jfaResult");
+    g_betterJfaComposeOutlineWidth = glGetUniformLocation(g_betterJfaComposeProgram, "outlineWidth");
+    g_betterJfaComposeAntialiasing = glGetUniformLocation(g_betterJfaComposeProgram, "outlineAntialiasing");
     g_presentTexture = glGetUniformLocation(g_presentProgram, "screenTexture");
 
     glGenVertexArrays(1, &g_cubeVao);
@@ -1015,6 +1136,10 @@ void Renderer_Render(void)
     {
         RenderJfaOutline();
     }
+    else if (g_outlineImplementation == 4)
+    {
+        RenderBetterJfaOutline();
+    }
     else
     {
         glBindFramebuffer(GL_FRAMEBUFFER, g_outlineFramebuffer);
@@ -1072,7 +1197,7 @@ void Renderer_MouseMove(int x, int y)
     {
         const float radiansPerPixel = 0.5f * 0.01745329252f;
         const Quaternion yaw = QuaternionFromAxisAngle(0.0f, 1.0f, 0.0f, deltaX * radiansPerPixel);
-        const Quaternion pitch = QuaternionFromAxisAngle(1.0f, 0.0f, 0.0f, -deltaY * radiansPerPixel);
+        const Quaternion pitch = QuaternionFromAxisAngle(1.0f, 0.0f, 0.0f, deltaY * radiansPerPixel);
         g_rotation = NormalizeQuaternion(MultiplyQuaternion(yaw, MultiplyQuaternion(pitch, g_rotation)));
     }
     if (g_panning)
@@ -1080,14 +1205,21 @@ void Renderer_MouseMove(int x, int y)
         const float width = (float)(g_width > 0 ? g_width : 1);
         const float height = (float)(g_height > 0 ? g_height : 1);
         g_panX -= 2.0f * deltaX / width;
-        g_panY -= 2.0f * deltaY / height;    }
+        g_panY += 2.0f * deltaY / height;
+    }
 }
 
 void Renderer_MouseWheel(int delta)
 {
     g_fieldOfView *= (float)pow(0.85, (double)delta / 120.0);
-    if (g_fieldOfView < 20.0f) g_fieldOfView = 20.0f;
-    if (g_fieldOfView > 90.0f) g_fieldOfView = 90.0f;
+    if (!isfinite(g_fieldOfView) || g_fieldOfView < 0.001f)
+    {
+        g_fieldOfView = 0.001f;
+    }
+    else if (g_fieldOfView > 179.999f)
+    {
+        g_fieldOfView = 179.999f;
+    }
 }
 void Renderer_Resize(int width, int height)
 {
@@ -1105,6 +1237,9 @@ void Renderer_Shutdown(void)
     if (g_jfaSeedProgram) glDeleteProgram(g_jfaSeedProgram);
     if (g_jfaStepProgram) glDeleteProgram(g_jfaStepProgram);
     if (g_jfaComposeProgram) glDeleteProgram(g_jfaComposeProgram);
+    if (g_betterJfaSeedProgram) glDeleteProgram(g_betterJfaSeedProgram);
+    if (g_betterJfaAxisProgram) glDeleteProgram(g_betterJfaAxisProgram);
+    if (g_betterJfaComposeProgram) glDeleteProgram(g_betterJfaComposeProgram);
     if (g_presentProgram) glDeleteProgram(g_presentProgram);
     if (g_framebuffer) glDeleteFramebuffers(1, &g_framebuffer);
     if (g_msaaFramebuffer) glDeleteFramebuffers(1, &g_msaaFramebuffer);
@@ -1153,9 +1288,9 @@ void Renderer_SetOutlineImplementation(int implementation)
         return;
     }
 
-    if (implementation > 3)
+    if (implementation > 4)
     {
-        g_outlineImplementation = 3;
+        g_outlineImplementation = 4;
         return;
     }
 
@@ -1164,15 +1299,16 @@ void Renderer_SetOutlineImplementation(int implementation)
 
 void Renderer_SetOutlineThickness(float pixels)
 {
+    pixels = (float)floor(pixels + 0.5f);
     if (pixels < 1.0f)
     {
         g_outlineWidthPixels = 1.0f;
         return;
     }
 
-    if (pixels > 32.0f)
+    if (pixels > 100.0f)
     {
-        g_outlineWidthPixels = 32.0f;
+        g_outlineWidthPixels = 100.0f;
         return;
     }
 

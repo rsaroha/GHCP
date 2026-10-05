@@ -85,6 +85,12 @@ All shader source is external and loaded at runtime:
   - Executes one jump-flood propagation step over the seed buffer.
 - `shaders/jfa_compose.frag`
   - Composites scene color with an outline using the final jump-flood result.
+- `shaders/better_jfa_seed.frag`
+  - Unity-style Sobel/subpixel seed initialization from the stencil silhouette.
+- `shaders/better_jfa_axis.frag`
+  - Performs one separable horizontal or vertical JFA pass using three samples.
+- `shaders/better_jfa_compose.frag`
+  - Decodes the nearest seed and applies distance-based antialiased outline coverage.
 
 - `shaders/present.frag`
   - Copies the outline FBO texture to the default framebuffer.
@@ -218,6 +224,7 @@ Win32 mouse messages are first sent to ImGui. If ImGui captures the mouse, model
   - `Cross kernel` (horizontal + vertical neighborhood)
   - `Jump flood` (multi-pass jump-flood distance propagation)
   - `Gaussian blur` (Gaussian-weighted stencil-mask blur)
+  - `Better-JFA` (Sobel/subpixel initialization plus separable horizontal/vertical JFA)
 - The UI includes an `Outline thickness (px)` slider (1..32) that is sent to
   outline shaders.
 - The UI includes an `Antialiased outline` checkbox that toggles smooth

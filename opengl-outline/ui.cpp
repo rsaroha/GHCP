@@ -74,13 +74,15 @@ void Ui_NewFrame(void)
 
     static float backgroundColor[3] = { 1.0f, 1.0f, 1.0f };
     static int outlineImplementation = 0;
-    static float outlineThickness = 4.0f;
+    static int outlineThickness = 4;
     static bool outlineAntialiasing = true;
     static bool msaa8Enabled = false;
     static std::string loadedObjFilename = "Default cube";
     Renderer_SetBackgroundColor(backgroundColor[0], backgroundColor[1], backgroundColor[2]);
     Renderer_SetOutlineImplementation(outlineImplementation);
-    Renderer_SetOutlineThickness(outlineThickness);
+    if (outlineThickness < 1) outlineThickness = 1;
+    if (outlineThickness > 100) outlineThickness = 100;
+    Renderer_SetOutlineThickness((float)outlineThickness);
     Renderer_SetOutlineAntialiasing(outlineAntialiasing);
     Renderer_SetMsaaEnabled(msaa8Enabled);
 
@@ -118,10 +120,33 @@ void Ui_NewFrame(void)
     DrawOutlineModeButton("Jump flood", 2, &outlineImplementation);
     ImGui::SameLine();
     DrawOutlineModeButton("Gaussian blur", 3, &outlineImplementation);
+    ImGui::SameLine();
+    DrawOutlineModeButton("Better-JFA", 4, &outlineImplementation);
 
     ImGui::Checkbox("MSAA x8", &msaa8Enabled);
     ImGui::Checkbox("Antialiased outline", &outlineAntialiasing);
-    ImGui::SliderFloat("Outline thickness (px)", &outlineThickness, 1.0f, 32.0f, "%.1f");
+    ImGui::Text("Outline thickness (px)");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(160.0f);
+    ImGui::SliderInt("##OutlineThicknessSlider", &outlineThickness, 1, 100);
+    /*ImGui::SameLine();
+    if (ImGui::Button("-"))
+    {
+        if (outlineThickness > 1) --outlineThickness;
+    }*/
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(100.0f);
+    if (ImGui::InputInt("##OutlineThickness", &outlineThickness, 1, 1))
+    {
+        if (outlineThickness < 1) outlineThickness = 1;
+        if (outlineThickness > 100) outlineThickness = 100;
+    }
+    /*
+    ImGui::SameLine();
+    if (ImGui::Button("+"))
+    {
+        if (outlineThickness < 100) ++outlineThickness;
+    }*/
     ImGuiIO& io = ImGui::GetIO();
     float framesPerSecond = io.Framerate;
     float millisecondsPerFrame = framesPerSecond > 0.0f ? 1000.0f / framesPerSecond : 0.0f;
