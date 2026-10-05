@@ -4,6 +4,7 @@ uniform sampler2D sceneColor;
 uniform usampler2D stencilMask;
 uniform sampler2D jfaResult;
 uniform float outlineWidth;
+uniform int outlineAntialiasing;
 out vec4 color;
 
 void main()
@@ -28,7 +29,19 @@ void main()
     vec2 pixelCenter = vec2(float(pixel.x) + 0.5, float(pixel.y) + 0.5);
     vec2 delta = seed - pixelCenter;
     float distanceToSilhouette = sqrt(dot(delta, delta));
-    float outsideEdge = distanceToSilhouette <= outlineWidth ? 1.0 : 0.0;
-    vec3 result = mix(scene.rgb, vec3(1.0, 0.0, 0.0), outsideEdge);
+    float outlineCoverage;
+    if (outlineAntialiasing != 0)
+    {
+        float antialiasWidth = max(fwidth(distanceToSilhouette), 1.0);
+        outlineCoverage = 1.0 - smoothstep(
+            outlineWidth - antialiasWidth,
+            outlineWidth + antialiasWidth,
+            distanceToSilhouette);
+    }
+    else
+    {
+        outlineCoverage = distanceToSilhouette <= outlineWidth ? 1.0 : 0.0;
+    }
+    vec3 result = mix(scene.rgb, vec3(1.0, 0.0, 0.0), outlineCoverage);
     color = vec4(result, 1.0);
 }

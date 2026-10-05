@@ -51,10 +51,12 @@ void Ui_NewFrame(void)
     static float backgroundColor[3] = { 1.0f, 1.0f, 1.0f };
     static int outlineImplementation = 0;
     static float outlineThickness = 4.0f;
+    static bool outlineAntialiasing = true;
     static bool msaa8Enabled = false;
     Renderer_SetBackgroundColor(backgroundColor[0], backgroundColor[1], backgroundColor[2]);
     Renderer_SetOutlineImplementation(outlineImplementation);
     Renderer_SetOutlineThickness(outlineThickness);
+    Renderer_SetOutlineAntialiasing(outlineAntialiasing);
     Renderer_SetMsaaEnabled(msaa8Enabled);
 
     ImGui::Begin("OpenGL Outline Demo");
@@ -78,8 +80,11 @@ void Ui_NewFrame(void)
     DrawOutlineModeButton("Cross kernel", 1, &outlineImplementation);
     ImGui::SameLine();
     DrawOutlineModeButton("Jump flood", 2, &outlineImplementation);
+    ImGui::SameLine();
+    DrawOutlineModeButton("Gaussian blur", 3, &outlineImplementation);
 
     ImGui::Checkbox("MSAA x8", &msaa8Enabled);
+    ImGui::Checkbox("Antialiased outline", &outlineAntialiasing);
     ImGui::SliderFloat("Outline thickness (px)", &outlineThickness, 1.0f, 32.0f, "%.1f");
     ImGuiIO& io = ImGui::GetIO();
     float framesPerSecond = io.Framerate;

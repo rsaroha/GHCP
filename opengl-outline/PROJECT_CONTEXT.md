@@ -209,14 +209,17 @@ Win32 mouse messages are first sent to ImGui. If ImGui captures the mouse, model
   - `E:\copilot\third_party\imgui\`
   - `E:\copilot\third_party\imgui\backends\`
 - The project includes ImGui core and Win32/OpenGL3 backend source files directly.
-- The UI intentionally has no help text or extra controls.
-- The only control is a background color label and color button.
-- The UI also includes buttons to switch outline implementation:
+- The UI includes a background color picker and controls for outline rendering.
+- The UI includes buttons to switch outline implementation:
   - `Brute-force` (9x9 neighborhood)
   - `Cross kernel` (horizontal + vertical neighborhood)
   - `Jump flood` (multi-pass jump-flood distance propagation)
+  - `Gaussian blur` (Gaussian-weighted stencil-mask blur)
 - The UI includes an `Outline thickness (px)` slider (1..32) that is sent to
   outline shaders.
+- The UI includes an `Antialiased outline` checkbox that toggles smooth
+  `fwidth`/`smoothstep` coverage versus hard-edged outline coverage in all
+  outline composition shaders.
 - The UI includes an `MSAA x8` checkbox. When enabled, the main scene renders
   into multisampled color + depth-stencil textures and is resolved into the
   single-sample main FBO before outline passes.
@@ -229,25 +232,25 @@ Build from PowerShell:
 
 ```powershell
 & 'C:\Program Files\Microsoft Visual Studio\18\Professional\MSBuild\Current\Bin\MSBuild.exe' `
-  'E:\copilot\opengl-outline\OpenGLOutline.sln' `
-  /m /p:Configuration=Debug /p:Platform=x86 /v:minimal
+  'D:\programming\git_rsaroha\GHCP\opengl-outline\OpenGLOutline.sln' `
+  /m /p:Configuration=Debug /p:Platform=x64 /v:minimal
 ```
 
 Run:
 
 ```powershell
-Start-Process 'E:\copilot\opengl-outline\bin\Debug\OpenGLOutline.exe'
+Start-Process 'D:\programming\git_rsaroha\GHCP\opengl-outline\build\Debug\OpenGLOutline.exe'
 ```
 
-The project has been repeatedly verified with successful Debug x86 builds and launch tests. When launch testing from automation, check that the process remains alive for several seconds and stop it with its specific PID.
+The project has been repeatedly verified with successful Debug x64 builds and launch tests. When launch testing from automation, check that the process remains alive for several seconds and stop it with its specific PID.
 
 ## Project file details
 
 `OpenGLOutline.vcxproj`:
 
 - Uses `v145`.
-- Uses Win32 project configurations.
-- Uses Debug/Release x86-compatible settings.
+- Uses x64 project configurations.
+- Uses Debug/Release x64-compatible settings.
 - Includes:
   - `main.cpp`
   - `renderer.cpp`
@@ -260,7 +263,7 @@ The project has been repeatedly verified with successful Debug x86 builds and la
   - `E:\copilot\third_party\imgui\backends`
 - Copies all shader files to the output directory.
 
-`OpenGLOutline.sln` currently uses the `Debug|x86` and `Release|x86` solution configurations.
+`OpenGLOutline.sln` currently uses the `Debug|x64` and `Release|x64` solution configurations.
 
 ## Resource ownership and cleanup
 
@@ -283,7 +286,16 @@ If framebuffer resources are changed, update all of:
 
 ## Known caveats and future work
 
-- The outline width is currently fixed at four pixels in `shaders/outline.frag`.
+Current renderer behavior:
+
+- The supported build target is x64, with Visual Studio and CMake outputs under
+  `build`.
+- Outline implementation, thickness, antialiasing, and MSAA x8 are controlled
+  from the ImGui panel.
+- The outline implementation choices are brute-force, cross-kernel, jump flood,
+  and Gaussian blur.
+
+- The outline width is controlled by the UI and passed to all outline shaders.
 - The neighborhood is square (`9 x 9` samples), so the visual shape is a square-radius expansion rather than an exact Euclidean-radius outline.
 - The outline color is hard-coded red.
 - The outline is generated from the visible stencil mask and therefore outlines the visible silhouette, not hidden/back-facing geometry.
@@ -302,5 +314,5 @@ If framebuffer resources are changed, update all of:
 - If changing `outline.frag`, remember that the stencil texture is read with integer coordinates and `texelFetch`.
 - Keep the rendering order as scene FBO -> outline FBO -> default framebuffer -> ImGui -> swap.
 - Do not let ImGui input reach model controls while `WantCaptureMouse` is true.
-- Build Debug x86 after renderer, shader, project, or UI changes.
+- Build Debug x64 after renderer, shader, project, or UI changes.
 - Do not move third-party ImGui files out of `E:\copilot\third_party\imgui`.
