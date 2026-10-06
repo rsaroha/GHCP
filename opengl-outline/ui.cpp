@@ -10,6 +10,10 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND hWnd, UINT msg
 
 #pragma comment(lib, "comdlg32.lib")
 
+static double g_frameTimingMicroseconds = 0.0;
+static double g_uiNewFrameMicroseconds = 0.0;
+static double g_uiRenderMicroseconds = 0.0;
+
 static bool OpenObjFileDialog(HWND window, std::string& filename)
 {
     char path[MAX_PATH] = {};
@@ -49,7 +53,7 @@ bool Ui_Initialize(HWND window)
     return true;
 }
 
-void Ui_NewFrame(void)
+bool Ui_NewFrame(void)
 {
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplWin32_NewFrame();
@@ -58,11 +62,13 @@ void Ui_NewFrame(void)
     static float backgroundColor[3] = { 1.0f, 1.0f, 1.0f };
     static OutlineImplementation outlineImplementation = OutlineBruteForce;
     static int outlineThickness = 4;
-    static bool outlineAntialiasing = true;
+    static bool outlineAntialiasing = false;
     static bool interiorOutline = true;
     static bool exteriorOutline = true;
+    static bool postFxaa = false;
     static bool msaa8Enabled = false;
     static std::string loadedObjFilename = "Default cube";
+    bool uiChanged = false;
     Renderer_SetBackgroundColor(backgroundColor[0], backgroundColor[1], backgroundColor[2]);
     Renderer_SetOutlineImplementation(outlineImplementation);
     if (outlineThickness < 1) outlineThickness = 1;
@@ -71,6 +77,7 @@ void Ui_NewFrame(void)
     Renderer_SetOutlineAntialiasing(outlineAntialiasing);
     Renderer_SetInteriorOutline(interiorOutline);
     Renderer_SetExteriorOutline(exteriorOutline);
+    Renderer_SetPostFxaa(postFxaa);
     Renderer_SetMsaaEnabled(msaa8Enabled);
 
     ImGui::Begin("OpenGL Outline Demo");
@@ -79,11 +86,12 @@ void Ui_NewFrame(void)
     if (ImGui::ColorButton("##BackgroundColor", ImVec4(backgroundColor[0], backgroundColor[1], backgroundColor[2], 1.0f), ImGuiColorEditFlags_NoTooltip, ImVec2(32.0f, 20.0f)))
     {
         ImGui::OpenPopup("BackgroundColorPopup");
+        uiChanged = true;
     }
 
     if (ImGui::BeginPopup("BackgroundColorPopup"))
     {
-        ImGui::ColorPicker3("##BackgroundColorPicker", backgroundColor, ImGuiColorEditFlags_DisplayRGB | ImGuiColorEditFlags_DisplayHSV | ImGuiColorEditFlags_DisplayHex);
+        uiChanged |= ImGui::ColorPicker3("##BackgroundColorPicker", backgroundColor, ImGuiColorEditFlags_DisplayRGB | ImGuiColorEditFlags_DisplayHSV | ImGuiColorEditFlags_DisplayHex);
         ImGui::EndPopup();
     }
 
@@ -93,6 +101,7 @@ void Ui_NewFrame(void)
         if (OpenObjFileDialog(g_window, filename) && Renderer_LoadObj(filename.c_str()))
         {
             loadedObjFilename = filename;
+            uiChanged = true;
         }
     }
     ImGui::SameLine();
@@ -101,18 +110,20 @@ void Ui_NewFrame(void)
     ImGui::Separator();
     ImGui::Text("Outline implementation");
     const char* outlineImplementationNames[] = {
+        "No outline",
         "Brute-force",
         "Cross kernel",
         "Jump flood (JFA)",
         "Better-JFA",
         "Gaussian blur",
-        "Box blur"
+        "Box blur",
+        "Sobel"
     };
     int outlineImplementationIndex = (int)outlineImplementation;
-    if (outlineImplementationIndex < (int)OutlineBruteForce ||
-        outlineImplementationIndex > (int)OutlineBoxBlur)
+    if (outlineImplementationIndex < (int)OutlineNone ||
+        outlineImplementationIndex > (int)OutlineSobel)
     {
-        outlineImplementation = OutlineBruteForce;
+        outlineImplementation = OutlineNone;
         outlineImplementationIndex = (int)outlineImplementation;
     }
     ImGui::SetNextItemWidth(180.0f);
@@ -120,18 +131,20 @@ void Ui_NewFrame(void)
         (int)(sizeof(outlineImplementationNames) / sizeof(outlineImplementationNames[0]))))
     {
         outlineImplementation = (OutlineImplementation)outlineImplementationIndex;
+        uiChanged = true;
     }
 
     ImGui::Separator();
 
-    ImGui::Checkbox("MSAA x8", &msaa8Enabled);
-    ImGui::Checkbox("Antialiased outline", &outlineAntialiasing);
-    ImGui::Checkbox("Interior outline", &interiorOutline);
-    ImGui::Checkbox("Exterior outline", &exteriorOutline);
+    uiChanged |= ImGui::Checkbox("MSAA x8", &msaa8Enabled);
+    uiChanged |= ImGui::Checkbox("Antialiased outline", &outlineAntialiasing);
+    uiChanged |= ImGui::Checkbox("Interior outline", &interiorOutline);
+    uiChanged |= ImGui::Checkbox("Exterior outline", &exteriorOutline);
+    uiChanged |= ImGui::Checkbox("post AA - FXAA", &postFxaa);
     ImGui::Text("Outline thickness (px)");
     //ImGui::SameLine();
     ImGui::SetNextItemWidth(160.0f);
-    ImGui::SliderInt("##OutlineThicknessSlider", &outlineThickness, 1, 100);
+    uiChanged |= ImGui::SliderInt("##OutlineThicknessSlider", &outlineThickness, 1, 100);
     /*ImGui::SameLine();
     if (ImGui::Button("-"))
     {
@@ -141,6 +154,7 @@ void Ui_NewFrame(void)
     ImGui::SetNextItemWidth(100.0f);
     if (ImGui::InputInt("##OutlineThickness", &outlineThickness, 1, 1))
     {
+        uiChanged = true;
         if (outlineThickness < 1) outlineThickness = 1;
         if (outlineThickness > 100) outlineThickness = 100;
     }
@@ -155,9 +169,34 @@ void Ui_NewFrame(void)
     float millisecondsPerFrame = framesPerSecond > 0.0f ? 1000.0f / framesPerSecond : 0.0f;
 
     ImGui::Separator();
+    ImGui::Text("Scene render (GPU Timer): %.1f us", Renderer_GetSceneTimeMicroseconds());
+    ImGui::Text("Outline (GPU Timer): %.1f us", Renderer_GetOutlineTimeMicroseconds());
+    if (postFxaa)
+    {
+        ImGui::Text("FXAA (GPU Timer): %.1f us", Renderer_GetFxaaTimeMicroseconds());
+    }
+    ImGui::Text("Renderer_Render (CPU Timer): %.1f us", Renderer_GetRenderTimeMicroseconds());
+    ImGui::Text("UI + Renderer frame: %.1f us", g_frameTimingMicroseconds);
+    ImGui::Text("UI time - NewFrame: %.1f us", g_uiNewFrameMicroseconds);
+    ImGui::Text("UI time - Render: %.1f us", g_uiRenderMicroseconds);
+    
+    ImGui::Text("");
     ImGui::Text("FPS: %.1f (%.2f ms/frame)", framesPerSecond, millisecondsPerFrame);
+    ImGui::Separator();
 
     ImGui::End();
+    return uiChanged || ImGui::IsAnyItemActive();
+}
+
+void Ui_SetFrameTiming(double microseconds)
+{
+    g_frameTimingMicroseconds = microseconds;
+}
+
+void Ui_SetTiming(double newFrameMicroseconds, double renderMicroseconds)
+{
+    g_uiNewFrameMicroseconds = newFrameMicroseconds;
+    g_uiRenderMicroseconds = renderMicroseconds;
 }
 
 void Ui_Render(void)

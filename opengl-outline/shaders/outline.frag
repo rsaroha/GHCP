@@ -1,6 +1,5 @@
 #version 330 compatibility
 in vec2 uv;
-uniform sampler2D sceneColor;
 uniform usampler2D stencilMask;
 uniform vec2 texelSize;
 uniform int outlineImplementation;
@@ -141,7 +140,6 @@ float ComputeInteriorCoverage(ivec2 pixel, ivec2 size, int radius)
 
 void main()
 {
-    vec4 scene = texture(sceneColor, uv);
     ivec2 size = textureSize(stencilMask, 0);
     ivec2 pixel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), size - 1);
     int radius = ComputeOutlineRadius();
@@ -156,7 +154,7 @@ void main()
     else
     {
         float nearestDistance;
-        if (outlineImplementation == 0)
+        if (outlineImplementation == 1)
         {
             nearestDistance = ComputeBruteForceDistance(pixel, size, radius, targetStencil);
         }
@@ -186,6 +184,5 @@ void main()
     {
         outlineCoverage = 0.0;
     }
-    vec3 result = mix(scene.rgb, vec3(1.0, 0.0, 0.0), outlineCoverage);
-    color = vec4(result, 1.0);
+    color = vec4(vec3(1.0, 0.0, 0.0), outlineCoverage);
 }

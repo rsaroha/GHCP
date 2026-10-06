@@ -1,6 +1,7 @@
 #include <windows.h>
 #include <gl/GL.h>
 #include <stdio.h>
+#include <chrono>
 #include "renderer.h"
 #include "ui.h"
 
@@ -17,6 +18,7 @@ extern "C" __declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
 
 HGLRC g_renderContext = 0;
 bool g_running = true;
+static bool g_redrawRequested = true;
 
 static void* GetWglProc(const char* name)
 {
@@ -49,6 +51,7 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
         {
             Renderer_Resize(g_width, g_height);
         }
+        g_redrawRequested = true;
         return 0;
     }
 
@@ -56,12 +59,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     {
         SetCapture(window);
         Renderer_MouseButton(0, true, (short)LOWORD(lParam), (short)HIWORD(lParam));
+        g_redrawRequested = true;
         return 0;
     }
 
     if (message == WM_LBUTTONUP)
     {
         Renderer_MouseButton(0, false, (short)LOWORD(lParam), (short)HIWORD(lParam));
+        g_redrawRequested = true;
         if (!(wParam & MK_MBUTTON))
         {
             ReleaseCapture();
@@ -73,12 +78,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     {
         SetCapture(window);
         Renderer_MouseButton(1, true, (short)LOWORD(lParam), (short)HIWORD(lParam));
+        g_redrawRequested = true;
         return 0;
     }
 
     if (message == WM_MBUTTONUP)
     {
         Renderer_MouseButton(1, false, (short)LOWORD(lParam), (short)HIWORD(lParam));
+        g_redrawRequested = true;
         if (!(wParam & MK_LBUTTON))
         {
             ReleaseCapture();
@@ -89,12 +96,14 @@ LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lPa
     if (message == WM_MOUSEMOVE)
     {
         Renderer_MouseMove((short)LOWORD(lParam), (short)HIWORD(lParam));
+        g_redrawRequested = true;
         return 0;
     }
 
     if (message == WM_MOUSEWHEEL)
     {
         Renderer_MouseWheel((short)HIWORD(wParam));
+        g_redrawRequested = true;
         return 0;
     }
 
@@ -198,10 +207,28 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
             DispatchMessageA(&message);
         }
 
-        Ui_NewFrame();
-        Renderer_Render();
-        Ui_Render();
+        const auto frameStartTime = std::chrono::steady_clock::now();
+        Renderer_UpdateGpuTimers();
+        const auto uiNewFrameStartTime = std::chrono::steady_clock::now();
+        const bool uiChanged = Ui_NewFrame();
+        const double uiNewFrameMicroseconds = std::chrono::duration<double, std::micro>(
+            std::chrono::steady_clock::now() - uiNewFrameStartTime).count();
+        //g_redrawRequested = g_redrawRequested || uiChanged;
+        g_redrawRequested = true;
+        if (g_redrawRequested || uiChanged)
+        {
+            Renderer_Render();
+        }
         Renderer_Present();
+        const auto uiRenderStartTime = std::chrono::steady_clock::now();
+        Ui_Render();
+        const double uiRenderMicroseconds = std::chrono::duration<double, std::micro>(
+            std::chrono::steady_clock::now() - uiRenderStartTime).count();
+        Renderer_SwapBuffers();
+        Ui_SetFrameTiming(std::chrono::duration<double, std::micro>(
+            std::chrono::steady_clock::now() - frameStartTime).count());
+        Ui_SetTiming(uiNewFrameMicroseconds, uiRenderMicroseconds);
+        g_redrawRequested = false;
     }
 
     Ui_Shutdown();
@@ -212,9 +239,3 @@ int WINAPI WinMain(HINSTANCE instance, HINSTANCE, LPSTR, int)
     DestroyWindow(g_window);
     return 0;
 }
-
-
-
-
-
-

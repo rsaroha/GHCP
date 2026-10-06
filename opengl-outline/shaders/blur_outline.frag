@@ -2,7 +2,6 @@
 in vec2 uv;
 uniform usampler2D stencilMask;
 uniform sampler2D blurInput;
-uniform sampler2D sceneColor;
 uniform int passMode;
 uniform int blurRadius;
 uniform int blurType;
@@ -49,7 +48,6 @@ void main()
         return;
     }
 
-    vec4 scene = texture(sceneColor, uv);
     float blurredMask = texelFetch(blurInput, pixel, 0).r;
     uint center = ReadStencil(pixel, size);
     float coverage = 0.0;
@@ -61,5 +59,5 @@ void main()
     {
         coverage = smoothstep(0.02, 0.5, 1.0 - blurredMask);
     }
-    color = vec4(mix(scene.rgb, vec3(1.0, 0.0, 0.0), coverage), 1.0);
+    color = vec4(vec3(1.0, 0.0, 0.0), coverage);
 }

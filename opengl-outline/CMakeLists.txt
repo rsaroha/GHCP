@@ -48,6 +48,8 @@ set(SHADER_FILES
     shaders/better_jfa_axis.frag
     shaders/better_jfa_compose.frag
     shaders/present.frag
+    shaders/fxaa.frag
+    shaders/sobel_outline.frag
 )
 
 add_executable(OpenGLOutline WIN32

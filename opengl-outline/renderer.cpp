@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string>
 #include <vector>
+#include <chrono>
 #include "renderer.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
@@ -63,6 +64,9 @@
 #define GL_TEXTURE_2D_MULTISAMPLE 0x9100
 #define GL_COLOR_BUFFER_BIT 0x00004000
 #define GL_DEPTH_BUFFER_BIT 0x00000100
+#define GL_QUERY_RESULT 0x8866
+#define GL_QUERY_RESULT_AVAILABLE 0x8867
+#define GL_TIME_ELAPSED 0x88BF
 #define GL_DEBUG_SOURCE_APPLICATION 0x824A
 #define GL_DEBUG_TYPE_MARKER 0x8268
 #define GL_DEBUG_SEVERITY_NOTIFICATION 0x826B
@@ -115,6 +119,12 @@ typedef void (APIENTRY* PFNGLBLITFRAMEBUFFERPROC)(GLint, GLint, GLint, GLint, GL
 typedef void (APIENTRY* PFNGLACTIVETEXTUREPROC)(GLenum);
 typedef void (APIENTRY* PFNGLGENERATEMIPMAPPROC)(GLenum);
 typedef void (APIENTRY* PFNGLDEBUGMESSAGEINSERTPROC)(GLenum, GLenum, GLuint, GLenum, GLsizei, const GLchar*);
+typedef void (APIENTRY* PFNGLGENQUERIESPROC)(GLsizei, GLuint*);
+typedef void (APIENTRY* PFNGLDELETEQUERIESPROC)(GLsizei, const GLuint*);
+typedef void (APIENTRY* PFNGLBEGINQUERYPROC)(GLenum, GLuint);
+typedef void (APIENTRY* PFNGLENDQUERYPROC)(GLenum);
+typedef void (APIENTRY* PFNGLGETQUERYOBJECTUIVPROC)(GLuint, GLenum, GLuint*);
+typedef void (APIENTRY* PFNGLGETQUERYOBJECTUI64VPROC)(GLuint, GLenum, unsigned long long*);
 
 #define LOAD_GL(name) name = (decltype(name))wglGetProcAddress(#name)
 
@@ -156,6 +166,12 @@ static PFNGLTEXIMAGE2DMULTISAMPLEPROC glTexImage2DMultisample;
 static PFNGLBLITFRAMEBUFFERPROC glBlitFramebuffer;
 static PFNGLACTIVETEXTUREPROC glActiveTexture;
 static PFNGLDEBUGMESSAGEINSERTPROC glDebugMessageInsert;
+static PFNGLGENQUERIESPROC glGenQueries;
+static PFNGLDELETEQUERIESPROC glDeleteQueries;
+static PFNGLBEGINQUERYPROC glBeginQuery;
+static PFNGLENDQUERYPROC glEndQuery;
+static PFNGLGETQUERYOBJECTUIVPROC glGetQueryObjectuiv;
+static PFNGLGETQUERYOBJECTUI64VPROC glGetQueryObjectui64v;
 
 HDC g_deviceContext = 0;
 HWND g_window = 0;
@@ -164,6 +180,7 @@ static GLuint g_cubeVbo = 0;
 static GLsizei g_meshVertexCount = 0;
 static GLuint g_cubeProgram = 0;
 static GLuint g_screenProgram = 0;
+static GLuint g_sobelProgram = 0;
 static GLuint g_jfaSeedProgram = 0;
 static GLuint g_jfaStepProgram = 0;
 static GLuint g_jfaComposeProgram = 0;
@@ -171,6 +188,7 @@ static GLuint g_betterJfaSeedProgram = 0;
 static GLuint g_betterJfaAxisProgram = 0;
 static GLuint g_betterJfaComposeProgram = 0;
 static GLuint g_blurProgram = 0;
+static GLuint g_fxaaProgram = 0;
 static GLuint g_presentProgram = 0;
 static GLuint g_framebuffer = 0;
 static GLuint g_msaaFramebuffer = 0;
@@ -180,9 +198,17 @@ static GLuint g_msaaColorTexture = 0;
 static GLuint g_msaaDepthTexture = 0;
 static GLuint g_outlineFramebuffer = 0;
 static GLuint g_outlineTexture = 0;
+static GLuint g_fxaaFramebuffer = 0;
+static GLuint g_fxaaTexture = 0;
 static GLuint g_jfaFramebuffer = 0;
 static GLuint g_jfaTextureA = 0;
 static GLuint g_jfaTextureB = 0;
+static GLuint g_sceneTimerQuery = 0;
+static GLuint g_outlineTimerQuery = 0;
+static GLuint g_fxaaTimerQuery = 0;
+static bool g_sceneTimerIssued = false;
+static bool g_outlineTimerIssued = false;
+static bool g_fxaaTimerIssued = false;
 static GLint g_cubeMatrix = -1;
 static GLint g_cubeModelView = -1;
 static GLint g_screenTexture = -1;
@@ -193,6 +219,13 @@ static GLint g_screenOutlineWidth = -1;
 static GLint g_screenOutlineAntialiasing = -1;
 static GLint g_screenInteriorOutline = -1;
 static GLint g_screenExteriorOutline = -1;
+static GLint g_sobelStencil = -1;
+static GLint g_sobelInput = -1;
+static GLint g_sobelPassMode = -1;
+static GLint g_sobelOutlineWidth = -1;
+static GLint g_sobelAntialiasing = -1;
+static GLint g_sobelInteriorOutline = -1;
+static GLint g_sobelExteriorOutline = -1;
 static GLint g_jfaSeedStencil = -1;
 static GLint g_jfaStepInput = -1;
 static GLint g_jfaStepJumpDistance = -1;
@@ -222,7 +255,10 @@ static GLint g_blurType = -1;
 static GLint g_blurDirection = -1;
 static GLint g_blurInteriorOutline = -1;
 static GLint g_blurExteriorOutline = -1;
+static GLint g_fxaaInput = -1;
+static GLint g_fxaaTexelSize = -1;
 static GLint g_presentTexture = -1;
+static GLint g_presentOutlineTexture = -1;
 int g_width = 960;
 int g_height = 640;
 struct Quaternion { float w, x, y, z; };
@@ -236,6 +272,11 @@ static float g_outlineWidthPixels = 4.0f;
 static bool g_outlineAntialiasing = true;
 static bool g_interiorOutline = true;
 static bool g_exteriorOutline = true;
+static bool g_postFxaa = false;
+static double g_sceneTimeMicroseconds = 0.0;
+static double g_outlineTimeMicroseconds = 0.0;
+static double g_fxaaTimeMicroseconds = 0.0;
+static double g_renderTimeMicroseconds = 0.0;
 static bool g_msaaEnabled = false;
 static float g_panX = 0.0f;
 static float g_panY = 0.0f;
@@ -243,6 +284,45 @@ static bool g_rotating = false;
 static bool g_panning = false;
 static int g_lastMouseX = 0;
 static int g_lastMouseY = 0;
+
+static bool BeginGpuTimer(GLuint query, bool& issued)
+{
+    if (issued)
+    {
+        return false;
+    }
+
+    glBeginQuery(GL_TIME_ELAPSED, query);
+    issued = true;
+    return true;
+}
+
+static double ReadGpuTimer(GLuint query, bool& issued, double previousValue)
+{
+    if (!issued)
+    {
+        return previousValue;
+    }
+
+    GLuint available = 0;
+    glGetQueryObjectuiv(query, GL_QUERY_RESULT_AVAILABLE, &available);
+    if (!available)
+    {
+        return previousValue;
+    }
+
+    unsigned long long nanoseconds = 0;
+    glGetQueryObjectui64v(query, GL_QUERY_RESULT, &nanoseconds);
+    issued = false;
+    return (double)nanoseconds / 1000.0;
+}
+
+void Renderer_UpdateGpuTimers(void)
+{
+    g_sceneTimeMicroseconds = ReadGpuTimer(g_sceneTimerQuery, g_sceneTimerIssued, g_sceneTimeMicroseconds);
+    g_outlineTimeMicroseconds = ReadGpuTimer(g_outlineTimerQuery, g_outlineTimerIssued, g_outlineTimeMicroseconds);
+    g_fxaaTimeMicroseconds = ReadGpuTimer(g_fxaaTimerQuery, g_fxaaTimerIssued, g_fxaaTimeMicroseconds);
+}
 
 static void UploadMeshVertices(const std::vector<float>& vertices)
 {
@@ -544,6 +624,12 @@ static bool LoadFunctions(void)
     LOAD_REQUIRED(glTexImage2DMultisample);
     LOAD_REQUIRED(glBlitFramebuffer);
     LOAD_REQUIRED(glActiveTexture);
+    LOAD_REQUIRED(glGenQueries);
+    LOAD_REQUIRED(glDeleteQueries);
+    LOAD_REQUIRED(glBeginQuery);
+    LOAD_REQUIRED(glEndQuery);
+    LOAD_REQUIRED(glGetQueryObjectuiv);
+    LOAD_REQUIRED(glGetQueryObjectui64v);
     glDebugMessageInsert = (PFNGLDEBUGMESSAGEINSERTPROC)GetGLProc("glDebugMessageInsert");
     if (!glDebugMessageInsert)
     {
@@ -726,12 +812,14 @@ static bool CreateRenderTarget(int width, int height)
     if (g_framebuffer) glDeleteFramebuffers(1, &g_framebuffer);
     if (g_msaaFramebuffer) glDeleteFramebuffers(1, &g_msaaFramebuffer);
     if (g_outlineFramebuffer) glDeleteFramebuffers(1, &g_outlineFramebuffer);
+    if (g_fxaaFramebuffer) glDeleteFramebuffers(1, &g_fxaaFramebuffer);
     if (g_jfaFramebuffer) glDeleteFramebuffers(1, &g_jfaFramebuffer);
     if (g_colorTexture) glDeleteTextures(1, &g_colorTexture);
     if (g_depthTexture) glDeleteTextures(1, &g_depthTexture);
     if (g_msaaColorTexture) glDeleteTextures(1, &g_msaaColorTexture);
     if (g_msaaDepthTexture) glDeleteTextures(1, &g_msaaDepthTexture);
     if (g_outlineTexture) glDeleteTextures(1, &g_outlineTexture);
+    if (g_fxaaTexture) glDeleteTextures(1, &g_fxaaTexture);
     if (g_jfaTextureA) glDeleteTextures(1, &g_jfaTextureA);
     if (g_jfaTextureB) glDeleteTextures(1, &g_jfaTextureB);
 
@@ -813,6 +901,26 @@ static bool CreateRenderTarget(int width, int height)
     }
     const bool outlineComplete = CheckFramebufferComplete("Outline framebuffer");
     if (!outlineComplete)
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return false;
+    }
+
+    glGenFramebuffers(1, &g_fxaaFramebuffer);
+    glBindFramebuffer(GL_FRAMEBUFFER, g_fxaaFramebuffer);
+    glGenTextures(1, &g_fxaaTexture);
+    glBindTexture(GL_TEXTURE_2D, g_fxaaTexture);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+    if (!AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_fxaaTexture, "fxaa"))
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return false;
+    }
+    if (!CheckFramebufferComplete("FXAA framebuffer"))
     {
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         return false;
@@ -1078,6 +1186,84 @@ static void RenderBlurOutline(int blurType)
     glDrawArrays(GL_TRIANGLES, 0, 3);
 }
 
+static void RenderSobelOutline(void)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, g_jfaFramebuffer);
+    glViewport(0, 0, g_width, g_height);
+    glDisable(GL_DEPTH_TEST);
+    glUseProgram(g_sobelProgram);
+    glUniform1i(g_sobelStencil, 0);
+    glUniform1i(g_sobelInput, 1);
+    glUniform1f(g_sobelOutlineWidth, g_outlineWidthPixels);
+    glUniform1i(g_sobelAntialiasing, g_outlineAntialiasing ? 1 : 0);
+    glUniform1i(g_sobelInteriorOutline, g_interiorOutline ? 1 : 0);
+    glUniform1i(g_sobelExteriorOutline, g_exteriorOutline ? 1 : 0);
+    glUniform1i(g_sobelPassMode, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+    glActiveTexture(GL_TEXTURE0 + 1);
+    glBindTexture(GL_TEXTURE_2D, g_jfaTextureA);
+    AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_jfaTextureB, "sobel-horizontal");
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, g_outlineFramebuffer);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glUniform1i(g_sobelPassMode, 1);
+    glActiveTexture(GL_TEXTURE0 + 1);
+    glBindTexture(GL_TEXTURE_2D, g_jfaTextureB);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
+static void RenderBruteForceOutline(void)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, g_outlineFramebuffer);
+    glViewport(0, 0, g_width, g_height);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_DEPTH_TEST);
+    glUseProgram(g_screenProgram);
+    glUniform1i(g_screenTexture, 0);
+    glUniform1i(g_screenStencil, 1);
+    glUniform1i(g_screenOutlineImplementation, g_outlineImplementation);
+    glUniform1f(g_screenOutlineWidth, g_outlineWidthPixels);
+    glUniform1i(g_screenOutlineAntialiasing, g_outlineAntialiasing ? 1 : 0);
+    glUniform1i(g_screenInteriorOutline, g_interiorOutline ? 1 : 0);
+    glUniform1i(g_screenExteriorOutline, g_exteriorOutline ? 1 : 0);
+    glUniform2f(g_screenTexelSize, 1.0f / (float)g_width, 1.0f / (float)g_height);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_colorTexture);
+    glActiveTexture(GL_TEXTURE0 + 1);
+    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
+static void RenderNoOutline(void)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, g_outlineFramebuffer);
+    glViewport(0, 0, g_width, g_height);
+    glDisable(GL_DEPTH_TEST);
+    glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+}
+
+static void RenderFxaa(void)
+{
+    const bool timerStarted = BeginGpuTimer(g_fxaaTimerQuery, g_fxaaTimerIssued);
+    glBindFramebuffer(GL_FRAMEBUFFER, g_fxaaFramebuffer);
+    glViewport(0, 0, g_width, g_height);
+    glDisable(GL_DEPTH_TEST);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glUseProgram(g_fxaaProgram);
+    glUniform1i(g_fxaaInput, 0);
+    glUniform2f(g_fxaaTexelSize, 1.0f / (float)g_width, 1.0f / (float)g_height);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_outlineTexture);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    if (timerStarted)
+    {
+        glEndQuery(GL_TIME_ELAPSED);
+    }
+}
+
 bool Renderer_Initialize(void)
 {
     if (!LoadFunctions())
@@ -1088,7 +1274,7 @@ bool Renderer_Initialize(void)
 
     std::string cubeVertex, cubeFragment, screenVertex, screenFragment, presentFragment;
     std::string jfaSeedFragment, jfaStepFragment, jfaComposeFragment;
-    std::string betterJfaSeedFragment, betterJfaAxisFragment, betterJfaComposeFragment, blurFragment;
+    std::string betterJfaSeedFragment, betterJfaAxisFragment, betterJfaComposeFragment, blurFragment, fxaaFragment, sobelFragment;
     if (!LoadShaderSource("cube.vert", cubeVertex) ||
         !LoadShaderSource("cube.frag", cubeFragment) ||
         !LoadShaderSource("fullscreen.vert", screenVertex) ||
@@ -1100,6 +1286,8 @@ bool Renderer_Initialize(void)
         !LoadShaderSource("better_jfa_axis.frag", betterJfaAxisFragment) ||
         !LoadShaderSource("better_jfa_compose.frag", betterJfaComposeFragment) ||
         !LoadShaderSource("blur_outline.frag", blurFragment) ||
+        !LoadShaderSource("fxaa.frag", fxaaFragment) ||
+        !LoadShaderSource("sobel_outline.frag", sobelFragment) ||
         !LoadShaderSource("present.frag", presentFragment))
     {
         Fail("Unable to load shader files from the shaders directory.");
@@ -1107,6 +1295,7 @@ bool Renderer_Initialize(void)
     }
     g_cubeProgram = CreateProgram(cubeVertex.c_str(), cubeFragment.c_str());
     g_screenProgram = CreateProgram(screenVertex.c_str(), screenFragment.c_str());
+    g_sobelProgram = CreateProgram(screenVertex.c_str(), sobelFragment.c_str());
     g_jfaSeedProgram = CreateProgram(screenVertex.c_str(), jfaSeedFragment.c_str());
     g_jfaStepProgram = CreateProgram(screenVertex.c_str(), jfaStepFragment.c_str());
     g_jfaComposeProgram = CreateProgram(screenVertex.c_str(), jfaComposeFragment.c_str());
@@ -1114,9 +1303,10 @@ bool Renderer_Initialize(void)
     g_betterJfaAxisProgram = CreateProgram(screenVertex.c_str(), betterJfaAxisFragment.c_str());
     g_betterJfaComposeProgram = CreateProgram(screenVertex.c_str(), betterJfaComposeFragment.c_str());
     g_blurProgram = CreateProgram(screenVertex.c_str(), blurFragment.c_str());
+    g_fxaaProgram = CreateProgram(screenVertex.c_str(), fxaaFragment.c_str());
     g_presentProgram = CreateProgram(screenVertex.c_str(), presentFragment.c_str());
     if (!g_cubeProgram || !g_screenProgram || !g_jfaSeedProgram || !g_jfaStepProgram || !g_jfaComposeProgram ||
-        !g_betterJfaSeedProgram || !g_betterJfaAxisProgram || !g_betterJfaComposeProgram || !g_blurProgram || !g_presentProgram) return false;
+        !g_betterJfaSeedProgram || !g_betterJfaAxisProgram || !g_betterJfaComposeProgram || !g_blurProgram || !g_sobelProgram || !g_fxaaProgram || !g_presentProgram) return false;
     g_cubeMatrix = glGetUniformLocation(g_cubeProgram, "mvp");
     g_cubeModelView = glGetUniformLocation(g_cubeProgram, "modelView");
     g_screenTexture = glGetUniformLocation(g_screenProgram, "sceneColor");
@@ -1127,6 +1317,13 @@ bool Renderer_Initialize(void)
     g_screenOutlineAntialiasing = glGetUniformLocation(g_screenProgram, "outlineAntialiasing");
     g_screenInteriorOutline = glGetUniformLocation(g_screenProgram, "interiorOutline");
     g_screenExteriorOutline = glGetUniformLocation(g_screenProgram, "exteriorOutline");
+    g_sobelStencil = glGetUniformLocation(g_sobelProgram, "stencilMask");
+    g_sobelInput = glGetUniformLocation(g_sobelProgram, "sobelInput");
+    g_sobelPassMode = glGetUniformLocation(g_sobelProgram, "passMode");
+    g_sobelOutlineWidth = glGetUniformLocation(g_sobelProgram, "outlineWidth");
+    g_sobelAntialiasing = glGetUniformLocation(g_sobelProgram, "outlineAntialiasing");
+    g_sobelInteriorOutline = glGetUniformLocation(g_sobelProgram, "interiorOutline");
+    g_sobelExteriorOutline = glGetUniformLocation(g_sobelProgram, "exteriorOutline");
     g_jfaSeedStencil = glGetUniformLocation(g_jfaSeedProgram, "stencilMask");
     g_jfaStepInput = glGetUniformLocation(g_jfaStepProgram, "jfaInput");
     g_jfaStepJumpDistance = glGetUniformLocation(g_jfaStepProgram, "jumpDistance");
@@ -1156,7 +1353,10 @@ bool Renderer_Initialize(void)
     g_blurDirection = glGetUniformLocation(g_blurProgram, "blurDirection");
     g_blurInteriorOutline = glGetUniformLocation(g_blurProgram, "interiorOutline");
     g_blurExteriorOutline = glGetUniformLocation(g_blurProgram, "exteriorOutline");
-    g_presentTexture = glGetUniformLocation(g_presentProgram, "screenTexture");
+    g_fxaaInput = glGetUniformLocation(g_fxaaProgram, "outlineTexture");
+    g_fxaaTexelSize = glGetUniformLocation(g_fxaaProgram, "texelSize");
+    g_presentTexture = glGetUniformLocation(g_presentProgram, "sceneTexture");
+    g_presentOutlineTexture = glGetUniformLocation(g_presentProgram, "outlineTexture");
 
     glGenVertexArrays(1, &g_cubeVao);
     glBindVertexArray(g_cubeVao);
@@ -1168,6 +1368,9 @@ bool Renderer_Initialize(void)
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
     glBindVertexArray(0);
     UploadDefaultMesh();
+    glGenQueries(1, &g_sceneTimerQuery);
+    glGenQueries(1, &g_outlineTimerQuery);
+    glGenQueries(1, &g_fxaaTimerQuery);
     if (!CreateRenderTarget(g_width, g_height))
     {
         Fail("The texture-backed framebuffer is incomplete.");
@@ -1176,9 +1379,9 @@ bool Renderer_Initialize(void)
     return true;
 }
 
-void Renderer_Render(void)
+static void RenderScene(void)
 {
-    if (g_width <= 0 || g_height <= 0) return;
+    const bool timerStarted = BeginGpuTimer(g_sceneTimerQuery, g_sceneTimerIssued);
     DebugMessage("Begin render pass");
     GLuint renderFramebuffer = g_msaaEnabled ? g_msaaFramebuffer : g_framebuffer;
     glBindFramebuffer(GL_FRAMEBUFFER, renderFramebuffer);
@@ -1200,7 +1403,6 @@ void Renderer_Render(void)
     glBindVertexArray(g_cubeVao);
     glDrawArrays(GL_TRIANGLES, 0, g_meshVertexCount);
     DebugMessage("End render pass");
-
     if (g_msaaEnabled)
     {
         DebugMessage("Begin MSAA resolve pass");
@@ -1214,10 +1416,62 @@ void Renderer_Render(void)
         glBindFramebuffer(GL_FRAMEBUFFER, g_framebuffer);
         DebugMessage("End MSAA resolve pass");
     }
+    if (timerStarted)
+    {
+        glEndQuery(GL_TIME_ELAPSED);
+    }
+}
 
+static void CompositeFrame(void)
+{
+    GLuint sceneTexture = g_colorTexture;
+    if (!g_msaaEnabled)
+    {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, g_framebuffer);
+        glBindTexture(GL_TEXTURE_2D, g_jfaTextureA);
+        glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, g_width, g_height);
+        sceneTexture = g_jfaTextureA;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, g_msaaEnabled ? g_msaaFramebuffer : g_framebuffer);
+    glViewport(0, 0, g_width, g_height);
+    glDisable(GL_DEPTH_TEST);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glUseProgram(g_presentProgram);
+    glUniform1i(g_presentTexture, 0);
+    glUniform1i(g_presentOutlineTexture, 1);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, sceneTexture);
+    glActiveTexture(GL_TEXTURE0 + 1);
+    glBindTexture(GL_TEXTURE_2D, g_postFxaa ? g_fxaaTexture : g_outlineTexture);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    if (g_msaaEnabled)
+    {
+        glBindFramebuffer(GL_READ_FRAMEBUFFER, g_msaaFramebuffer);
+        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, g_framebuffer);
+        glBlitFramebuffer(
+            0, 0, g_width, g_height,
+            0, 0, g_width, g_height,
+            GL_COLOR_BUFFER_BIT,
+            GL_NEAREST);
+    }
+}
+
+void Renderer_Render(void)
+{
+    if (g_width <= 0 || g_height <= 0) return;
+    const auto renderStartTime = std::chrono::steady_clock::now();
+    RenderScene();
+
+    const bool timerStarted = BeginGpuTimer(g_outlineTimerQuery, g_outlineTimerIssued);
     DebugMessage("Begin outline pass");
     glDisable(GL_STENCIL_TEST);
-    if (g_outlineImplementation == OutlineJumpFlood)
+    if (g_outlineImplementation == OutlineNone)
+    {
+        RenderNoOutline();
+    }
+    else if (g_outlineImplementation == OutlineJumpFlood)
     {
         RenderJfaOutline();
     }
@@ -1233,41 +1487,31 @@ void Renderer_Render(void)
     {
         RenderBlurOutline(1);
     }
+    else if (g_outlineImplementation == OutlineSobel)
+    {
+        RenderSobelOutline();
+    }
     else
     {
-        glBindFramebuffer(GL_FRAMEBUFFER, g_outlineFramebuffer);
-        glViewport(0, 0, g_width, g_height);
-        glClear(GL_COLOR_BUFFER_BIT);
-        glDisable(GL_DEPTH_TEST);
-        glUseProgram(g_screenProgram);
-        glUniform1i(g_screenTexture, 0);
-        glUniform1i(g_screenStencil, 1);
-        glUniform1i(g_screenOutlineImplementation, g_outlineImplementation);
-        glUniform1f(g_screenOutlineWidth, g_outlineWidthPixels);
-        glUniform1i(g_screenOutlineAntialiasing, g_outlineAntialiasing ? 1 : 0);
-        glUniform1i(g_screenInteriorOutline, g_interiorOutline ? 1 : 0);
-        glUniform1i(g_screenExteriorOutline, g_exteriorOutline ? 1 : 0);
-        glUniform2f(g_screenTexelSize, 1.0f / (float)g_width, 1.0f / (float)g_height);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, g_colorTexture);
-        glActiveTexture(GL_TEXTURE0 + 1);
-        glBindTexture(GL_TEXTURE_2D, g_depthTexture);
-        glDrawArrays(GL_TRIANGLES, 0, 3);
+        RenderBruteForceOutline();
     }
     DebugMessage("End outline pass");
+    if (timerStarted)
+    {
+        glEndQuery(GL_TIME_ELAPSED);
+    }
 
+    if (g_postFxaa)
+    {
+        DebugMessage("Begin FXAA pass");
+        RenderFxaa();
+        DebugMessage("End FXAA pass");
+    }
     DebugMessage("Begin blend back to renderframe pass");
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    glViewport(0, 0, g_width, g_height);
-    glDisable(GL_DEPTH_TEST);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glUseProgram(g_presentProgram);
-    glUniform1i(g_presentTexture, 0);
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, g_outlineTexture);
-    glDrawArrays(GL_TRIANGLES, 0, 3);
+    CompositeFrame();
     DebugMessage("End blend back to renderframe pass");
-
+    g_renderTimeMicroseconds = std::chrono::duration<double, std::micro>(
+        std::chrono::steady_clock::now() - renderStartTime).count();
 }
 
 
@@ -1329,6 +1573,7 @@ void Renderer_Shutdown(void)
     if (g_cubeVbo) glDeleteBuffers(1, &g_cubeVbo);
     if (g_cubeProgram) glDeleteProgram(g_cubeProgram);
     if (g_screenProgram) glDeleteProgram(g_screenProgram);
+    if (g_sobelProgram) glDeleteProgram(g_sobelProgram);
     if (g_jfaSeedProgram) glDeleteProgram(g_jfaSeedProgram);
     if (g_jfaStepProgram) glDeleteProgram(g_jfaStepProgram);
     if (g_jfaComposeProgram) glDeleteProgram(g_jfaComposeProgram);
@@ -1336,23 +1581,40 @@ void Renderer_Shutdown(void)
     if (g_betterJfaAxisProgram) glDeleteProgram(g_betterJfaAxisProgram);
     if (g_betterJfaComposeProgram) glDeleteProgram(g_betterJfaComposeProgram);
     if (g_blurProgram) glDeleteProgram(g_blurProgram);
+    if (g_fxaaProgram) glDeleteProgram(g_fxaaProgram);
     if (g_presentProgram) glDeleteProgram(g_presentProgram);
     if (g_framebuffer) glDeleteFramebuffers(1, &g_framebuffer);
     if (g_msaaFramebuffer) glDeleteFramebuffers(1, &g_msaaFramebuffer);
     if (g_outlineFramebuffer) glDeleteFramebuffers(1, &g_outlineFramebuffer);
+    if (g_fxaaFramebuffer) glDeleteFramebuffers(1, &g_fxaaFramebuffer);
     if (g_jfaFramebuffer) glDeleteFramebuffers(1, &g_jfaFramebuffer);
     if (g_colorTexture) glDeleteTextures(1, &g_colorTexture);
     if (g_depthTexture) glDeleteTextures(1, &g_depthTexture);
     if (g_msaaColorTexture) glDeleteTextures(1, &g_msaaColorTexture);
     if (g_msaaDepthTexture) glDeleteTextures(1, &g_msaaDepthTexture);
     if (g_outlineTexture) glDeleteTextures(1, &g_outlineTexture);
+    if (g_fxaaTexture) glDeleteTextures(1, &g_fxaaTexture);
     if (g_jfaTextureA) glDeleteTextures(1, &g_jfaTextureA);
     if (g_jfaTextureB) glDeleteTextures(1, &g_jfaTextureB);
+    if (g_sceneTimerQuery) glDeleteQueries(1, &g_sceneTimerQuery);
+    if (g_outlineTimerQuery) glDeleteQueries(1, &g_outlineTimerQuery);
+    if (g_fxaaTimerQuery) glDeleteQueries(1, &g_fxaaTimerQuery);
 }
 
 
 
 void Renderer_Present(void)
+{
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, g_framebuffer);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBlitFramebuffer(
+        0, 0, g_width, g_height,
+        0, 0, g_width, g_height,
+        GL_COLOR_BUFFER_BIT,
+        GL_NEAREST);
+}
+
+void Renderer_SwapBuffers(void)
 {
     SwapBuffers(g_deviceContext);
 }
@@ -1378,15 +1640,15 @@ bool Renderer_LoadObj(const char* filename)
 
 void Renderer_SetOutlineImplementation(OutlineImplementation implementation)
 {
-    if (implementation < OutlineBruteForce)
+    if (implementation < OutlineNone)
     {
-        g_outlineImplementation = OutlineBruteForce;
+        g_outlineImplementation = OutlineNone;
         return;
     }
 
-    if (implementation > OutlineBoxBlur)
+    if (implementation > OutlineSobel)
     {
-        g_outlineImplementation = OutlineBoxBlur;
+        g_outlineImplementation = OutlineSobel;
         return;
     }
 
@@ -1424,6 +1686,31 @@ void Renderer_SetInteriorOutline(bool enabled)
 void Renderer_SetExteriorOutline(bool enabled)
 {
     g_exteriorOutline = enabled;
+}
+
+void Renderer_SetPostFxaa(bool enabled)
+{
+    g_postFxaa = enabled;
+}
+
+double Renderer_GetSceneTimeMicroseconds(void)
+{
+    return g_sceneTimeMicroseconds;
+}
+
+double Renderer_GetOutlineTimeMicroseconds(void)
+{
+    return g_outlineTimeMicroseconds;
+}
+
+double Renderer_GetFxaaTimeMicroseconds(void)
+{
+    return g_fxaaTimeMicroseconds;
+}
+
+double Renderer_GetRenderTimeMicroseconds(void)
+{
+    return g_renderTimeMicroseconds;
 }
 
 void Renderer_SetMsaaEnabled(bool enabled)
