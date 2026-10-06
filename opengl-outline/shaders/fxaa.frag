@@ -1,7 +1,6 @@
 #version 330 compatibility
 in vec2 uv;
 uniform sampler2D outlineTexture;
-uniform vec2 texelSize;
 out vec4 color;
 
 float Luma(float alpha)
@@ -11,6 +10,7 @@ float Luma(float alpha)
 
 void main()
 {
+    vec2 texelSize = 1.0 / vec2(textureSize(outlineTexture, 0));
     float center = Luma(texture(outlineTexture, uv).a);
     float north = Luma(texture(outlineTexture, uv + vec2(0.0, texelSize.y)).a);
     float south = Luma(texture(outlineTexture, uv - vec2(0.0, texelSize.y)).a);

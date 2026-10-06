@@ -251,7 +251,6 @@ static GLint g_blurDirection = -1;
 static GLint g_blurInteriorOutline = -1;
 static GLint g_blurExteriorOutline = -1;
 static GLint g_fxaaInput = -1;
-static GLint g_fxaaTexelSize = -1;
 static GLint g_presentTexture = -1;
 static GLint g_presentOutlineTexture = -1;
 int g_width = 960;
@@ -1236,7 +1235,6 @@ static void RenderFxaa(void)
     glClear(GL_COLOR_BUFFER_BIT);
     glUseProgram(g_fxaaProgram);
     glUniform1i(g_fxaaInput, 0);
-    glUniform2f(g_fxaaTexelSize, 1.0f / (float)g_width, 1.0f / (float)g_height);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, g_outlineTexture);
     glDrawArrays(GL_TRIANGLES, 0, 3);
@@ -1331,7 +1329,6 @@ bool Renderer_Initialize(void)
     g_blurInteriorOutline = glGetUniformLocation(g_blurProgram, "interiorOutline");
     g_blurExteriorOutline = glGetUniformLocation(g_blurProgram, "exteriorOutline");
     g_fxaaInput = glGetUniformLocation(g_fxaaProgram, "outlineTexture");
-    g_fxaaTexelSize = glGetUniformLocation(g_fxaaProgram, "texelSize");
     g_presentTexture = glGetUniformLocation(g_presentProgram, "sceneTexture");
     g_presentOutlineTexture = glGetUniformLocation(g_presentProgram, "outlineTexture");
 
