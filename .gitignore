@@ -36,3 +36,4 @@
 */.vs/*
 # Ignore all swap files 
 .*.swp
+opengl-outline/imgui.ini

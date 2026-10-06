@@ -1,7 +1,6 @@
 #version 330 compatibility
 in vec2 uv;
 uniform usampler2D stencilMask;
-uniform vec2 texelSize;
 uniform int outlineImplementation;
 uniform float outlineWidth;
 uniform int outlineAntialiasing;
@@ -11,178 +10,106 @@ out vec4 color;
 
 uint ReadStencil(ivec2 pixel, ivec2 size)
 {
-    ivec2 clamped = clamp(pixel, ivec2(0), size - 1);
-    return texelFetch(stencilMask, clamped, 0).r;
+    return texelFetch(stencilMask, clamp(pixel, ivec2(0), size - 1), 0).r;
 }
 
-int ComputeOutlineRadius()
-{
-    int radius = int(ceil(max(0.5, outlineWidth * 0.5)));
-    radius = clamp(radius, 1, 100);
-    return radius;
-}
-
-float ComputeOutlineRadiusPixels()
+float OutlineRadiusPixels()
 {
     return max(0.5, outlineWidth * 0.5);
 }
 
-float ComputeBruteForceDistance(ivec2 pixel, ivec2 size, int radius, uint targetStencil)
+int OutlineRadius()
 {
-    float nearestDistance = 1.0e30;
-    for (int y = -radius; y <= radius; ++y)
-    {
-        if (abs(y) > radius)
-        {
-            continue;
-        }
-
-        for (int x = -radius; x <= radius; ++x)
-        {
-            if (abs(x) > radius)
-            {
-                continue;
-            }
-            if (ReadStencil(pixel + ivec2(x, y), size) == targetStencil)
-            {
-                vec2 offset = vec2(float(x), float(y));
-                nearestDistance = min(nearestDistance, length(offset));
-            }
-        }
-    }
-    return nearestDistance;
+    return clamp(int(ceil(OutlineRadiusPixels())), 1, 100);
 }
 
-float ComputeCrossDistance(ivec2 pixel, ivec2 size, int radius, uint targetStencil)
+float ComputeBruteForceDistance(ivec2 pixel, ivec2 size, int radius)
 {
     float nearestDistance = 1.0e30;
-    for (int step = -radius; step <= radius; ++step)
+    for (int y = -100; y <= 100; ++y)
     {
-        if (abs(step) > radius)
+        if (abs(y) > radius) continue;
+        for (int x = -100; x <= 100; ++x)
         {
-            continue;
-        }
-        if (ReadStencil(pixel + ivec2(step, 0), size) == targetStencil)
-        {
-            nearestDistance = min(nearestDistance, abs(float(step)));
-        }
-        if (ReadStencil(pixel + ivec2(0, step), size) == targetStencil)
-        {
-            nearestDistance = min(nearestDistance, abs(float(step)));
-        }
-    }
-    return nearestDistance;
-}
-
-float ComputeGaussianCoverage(ivec2 pixel, ivec2 size)
-{
-    float sigma = max(ComputeOutlineRadiusPixels() * 0.5, 0.5);
-    float twoSigmaSquared = 2.0 * sigma * sigma;
-    int radius = clamp(int(ceil(ComputeOutlineRadiusPixels())), 1, 32);
-    float weightedMask = 0.0;
-    float totalWeight = 0.0;
-
-    for (int y = -radius; y <= radius; ++y)
-    {
-        if (abs(y) > radius)
-        {
-            continue;
-        }
-
-        for (int x = -radius; x <= radius; ++x)
-        {
-            if (abs(x) > radius)
-            {
-                continue;
-            }
-
-            float distanceSquared = float(x * x + y * y);
-            float weight = exp(-distanceSquared / twoSigmaSquared);
-            ivec2 samplePixel = clamp(pixel + ivec2(x, y), ivec2(0), size - 1);
-            float mask = ReadStencil(samplePixel, size) == 0u ? 0.0 : 1.0;
-            weightedMask += mask * weight;
-            totalWeight += weight;
-        }
-    }
-
-    float blurredMask = weightedMask / totalWeight;
-    if (outlineAntialiasing != 0)
-    {
-        return smoothstep(0.02, 0.5, blurredMask);
-    }
-
-    return blurredMask >= 0.05 ? 1.0 : 0.0;
-}
-
-float ComputeInteriorCoverage(ivec2 pixel, ivec2 size, int radius)
-{
-    float nearestDistance = 1.0e30;
-    for (int y = -radius; y <= radius; ++y)
-    {
-        for (int x = -radius; x <= radius; ++x)
-        {
-            if (ReadStencil(pixel + ivec2(x, y), size) == 0u)
+            if (abs(x) > radius) continue;
+            if (ReadStencil(pixel + ivec2(x, y), size) != 0u)
             {
                 nearestDistance = min(nearestDistance, length(vec2(x, y)));
             }
         }
     }
-    if (nearestDistance >= 1.0e29)
+    return nearestDistance;
+}
+
+float ComputeCrossDistance(ivec2 pixel, ivec2 size, int radius)
+{
+    float nearestDistance = 1.0e30;
+    for (int offset = -100; offset <= 100; ++offset)
     {
-        return 0.0;
+        if (abs(offset) > radius) continue;
+        if (ReadStencil(pixel + ivec2(offset, 0), size) != 0u)
+            nearestDistance = min(nearestDistance, abs(float(offset)));
+        if (ReadStencil(pixel + ivec2(0, offset), size) != 0u)
+            nearestDistance = min(nearestDistance, abs(float(offset)));
     }
+    return nearestDistance;
+}
+
+float ComputeInteriorCoverage(ivec2 pixel, ivec2 size, int radius)
+{
+    float nearestDistance = 1.0e30;
+    for (int y = -100; y <= 100; ++y)
+    {
+        if (abs(y) > radius) continue;
+        for (int x = -100; x <= 100; ++x)
+        {
+            if (abs(x) > radius) continue;
+            if (ReadStencil(pixel + ivec2(x, y), size) == 0u)
+                nearestDistance = min(nearestDistance, length(vec2(x, y)));
+        }
+    }
+    if (nearestDistance >= 1.0e29) return 0.0;
     if (outlineAntialiasing != 0)
     {
-        return 1.0 - smoothstep(ComputeOutlineRadiusPixels() - 1.0, ComputeOutlineRadiusPixels() + 1.0, nearestDistance);
+        return 1.0 - smoothstep(
+            OutlineRadiusPixels() - 1.0,
+            OutlineRadiusPixels() + 1.0,
+            nearestDistance);
     }
-    return nearestDistance <= ComputeOutlineRadiusPixels() ? 1.0 : 0.0;
+    return nearestDistance <= OutlineRadiusPixels() ? 1.0 : 0.0;
 }
 
 void main()
 {
     ivec2 size = textureSize(stencilMask, 0);
     ivec2 pixel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), size - 1);
-    int radius = ComputeOutlineRadius();
-    uint center = ReadStencil(pixel, size);
-    uint targetStencil = 1u;
-    float outlineCoverage;
+    int radius = OutlineRadius();
+    bool inside = ReadStencil(pixel, size) != 0u;
+    float coverage = 0.0;
 
-    if (outlineImplementation == 3)
+    if (inside)
     {
-        outlineCoverage = center == 0u ? ComputeGaussianCoverage(pixel, size) : 0.0;
+        if (interiorOutline != 0)
+            coverage = ComputeInteriorCoverage(pixel, size, radius);
     }
-    else
+    else if (exteriorOutline != 0)
     {
-        float nearestDistance;
-        if (outlineImplementation == 1)
-        {
-            nearestDistance = ComputeBruteForceDistance(pixel, size, radius, targetStencil);
-        }
-        else
-        {
-            nearestDistance = ComputeCrossDistance(pixel, size, radius, targetStencil);
-        }
-
+        float distanceToSilhouette = outlineImplementation == 1
+            ? ComputeBruteForceDistance(pixel, size, radius)
+            : ComputeCrossDistance(pixel, size, radius);
         if (outlineAntialiasing != 0)
         {
-            float antialiasWidth = max(fwidth(nearestDistance), 1.0);
-            outlineCoverage = 1.0 - smoothstep(
-                ComputeOutlineRadiusPixels() - antialiasWidth,
-                ComputeOutlineRadiusPixels() + antialiasWidth,
-                nearestDistance);
+            float antialiasWidth = max(fwidth(distanceToSilhouette), 1.0);
+            coverage = 1.0 - smoothstep(
+                OutlineRadiusPixels() - antialiasWidth,
+                OutlineRadiusPixels() + antialiasWidth,
+                distanceToSilhouette);
         }
         else
         {
-            outlineCoverage = nearestDistance <= ComputeOutlineRadiusPixels() ? 1.0 : 0.0;
+            coverage = distanceToSilhouette <= OutlineRadiusPixels() ? 1.0 : 0.0;
         }
     }
-    if (center != 0u)
-    {
-        outlineCoverage = interiorOutline != 0 ? ComputeInteriorCoverage(pixel, size, radius) : 0.0;
-    }
-    else if (exteriorOutline == 0)
-    {
-        outlineCoverage = 0.0;
-    }
-    color = vec4(vec3(1.0, 0.0, 0.0), outlineCoverage);
+
+    color = vec4(vec3(1.0, 0.0, 0.0), coverage);
 }
