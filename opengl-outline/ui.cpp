@@ -30,30 +30,6 @@ static bool OpenObjFileDialog(HWND window, std::string& filename)
     return true;
 }
 
-static bool DrawOutlineModeButton(const char* label, int mode, int* selectedMode)
-{
-    bool isSelected = *selectedMode == mode;
-    if (isSelected)
-    {
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.50f, 0.30f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.20f, 0.62f, 0.37f, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.12f, 0.42f, 0.25f, 1.0f));
-    }
-
-    bool clicked = ImGui::Button(label);
-    if (clicked)
-    {
-        *selectedMode = mode;
-    }
-
-    if (isSelected)
-    {
-        ImGui::PopStyleColor(3);
-    }
-
-    return clicked;
-}
-
 bool Ui_Initialize(HWND window)
 {
     IMGUI_CHECKVERSION();
@@ -80,10 +56,11 @@ void Ui_NewFrame(void)
     ImGui::NewFrame();
 
     static float backgroundColor[3] = { 1.0f, 1.0f, 1.0f };
-    static int outlineImplementation = 0;
+    static OutlineImplementation outlineImplementation = OutlineBruteForce;
     static int outlineThickness = 4;
     static bool outlineAntialiasing = true;
-    static bool interiorOutline = false;
+    static bool interiorOutline = true;
+    static bool exteriorOutline = true;
     static bool msaa8Enabled = false;
     static std::string loadedObjFilename = "Default cube";
     Renderer_SetBackgroundColor(backgroundColor[0], backgroundColor[1], backgroundColor[2]);
@@ -93,6 +70,7 @@ void Ui_NewFrame(void)
     Renderer_SetOutlineThickness((float)outlineThickness);
     Renderer_SetOutlineAntialiasing(outlineAntialiasing);
     Renderer_SetInteriorOutline(interiorOutline);
+    Renderer_SetExteriorOutline(exteriorOutline);
     Renderer_SetMsaaEnabled(msaa8Enabled);
 
     ImGui::Begin("OpenGL Outline Demo");
@@ -122,21 +100,34 @@ void Ui_NewFrame(void)
 
     ImGui::Separator();
     ImGui::Text("Outline implementation");
-    DrawOutlineModeButton("Brute-force", 0, &outlineImplementation);
-    
-    DrawOutlineModeButton("Cross kernel", 1, &outlineImplementation);
-    
-    DrawOutlineModeButton("Jump flood", 2, &outlineImplementation);
-    
-    DrawOutlineModeButton("Gaussian blur", 3, &outlineImplementation);
-    
-    DrawOutlineModeButton("Better-JFA", 4, &outlineImplementation);
+    const char* outlineImplementationNames[] = {
+        "Brute-force",
+        "Cross kernel",
+        "Jump flood (JFA)",
+        "Better-JFA",
+        "Gaussian blur",
+        "Box blur"
+    };
+    int outlineImplementationIndex = (int)outlineImplementation;
+    if (outlineImplementationIndex < (int)OutlineBruteForce ||
+        outlineImplementationIndex > (int)OutlineBoxBlur)
+    {
+        outlineImplementation = OutlineBruteForce;
+        outlineImplementationIndex = (int)outlineImplementation;
+    }
+    ImGui::SetNextItemWidth(180.0f);
+    if (ImGui::Combo("##OutlineImplementation", &outlineImplementationIndex, outlineImplementationNames,
+        (int)(sizeof(outlineImplementationNames) / sizeof(outlineImplementationNames[0]))))
+    {
+        outlineImplementation = (OutlineImplementation)outlineImplementationIndex;
+    }
 
     ImGui::Separator();
 
     ImGui::Checkbox("MSAA x8", &msaa8Enabled);
     ImGui::Checkbox("Antialiased outline", &outlineAntialiasing);
     ImGui::Checkbox("Interior outline", &interiorOutline);
+    ImGui::Checkbox("Exterior outline", &exteriorOutline);
     ImGui::Text("Outline thickness (px)");
     //ImGui::SameLine();
     ImGui::SetNextItemWidth(160.0f);

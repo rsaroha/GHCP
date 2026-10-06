@@ -7,6 +7,16 @@ extern HDC g_deviceContext;
 extern HWND g_window;
 extern int g_width;
 extern int g_height;
+
+enum OutlineImplementation
+{
+    OutlineBruteForce = 0,
+    OutlineCrossKernel = 1,
+    OutlineJumpFlood = 2,
+    OutlineBetterJfa = 3,
+    OutlineGaussianBlur = 4,
+    OutlineBoxBlur = 5
+};
 void Renderer_MouseButton(int button, bool down, int x, int y);
 void Renderer_MouseMove(int x, int y);
 void Renderer_MouseWheel(int delta);
@@ -18,10 +28,11 @@ void Renderer_Shutdown(void);
 void Renderer_Present(void);
 void Renderer_SetBackgroundColor(float red, float green, float blue);
 bool Renderer_LoadObj(const char* filename);
-void Renderer_SetOutlineImplementation(int implementation);
+void Renderer_SetOutlineImplementation(OutlineImplementation implementation);
 void Renderer_SetOutlineThickness(float pixels);
 void Renderer_SetOutlineAntialiasing(bool enabled);
 void Renderer_SetInteriorOutline(bool enabled);
+void Renderer_SetExteriorOutline(bool enabled);
 void Renderer_SetMsaaEnabled(bool enabled);
 LRESULT CALLBACK WindowProc(HWND window, UINT message, WPARAM wParam, LPARAM lParam);
 bool CreateOpenGLWindow(HINSTANCE instance);

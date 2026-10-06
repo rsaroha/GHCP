@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string>
 #include <vector>
+#include "renderer.h"
 
 #define TINYOBJLOADER_IMPLEMENTATION
 #include "../third_party/tiny_obj_loader.h"
@@ -169,6 +170,7 @@ static GLuint g_jfaComposeProgram = 0;
 static GLuint g_betterJfaSeedProgram = 0;
 static GLuint g_betterJfaAxisProgram = 0;
 static GLuint g_betterJfaComposeProgram = 0;
+static GLuint g_blurProgram = 0;
 static GLuint g_presentProgram = 0;
 static GLuint g_framebuffer = 0;
 static GLuint g_msaaFramebuffer = 0;
@@ -190,6 +192,7 @@ static GLint g_screenOutlineImplementation = -1;
 static GLint g_screenOutlineWidth = -1;
 static GLint g_screenOutlineAntialiasing = -1;
 static GLint g_screenInteriorOutline = -1;
+static GLint g_screenExteriorOutline = -1;
 static GLint g_jfaSeedStencil = -1;
 static GLint g_jfaStepInput = -1;
 static GLint g_jfaStepJumpDistance = -1;
@@ -199,6 +202,7 @@ static GLint g_jfaComposeResult = -1;
 static GLint g_jfaComposeOutlineWidth = -1;
 static GLint g_jfaComposeAntialiasing = -1;
 static GLint g_jfaComposeInteriorOutline = -1;
+static GLint g_jfaComposeExteriorOutline = -1;
 static GLint g_betterJfaSeedStencil = -1;
 static GLint g_betterJfaAxisInput = -1;
 static GLint g_betterJfaAxisWidth = -1;
@@ -208,6 +212,16 @@ static GLint g_betterJfaComposeResult = -1;
 static GLint g_betterJfaComposeOutlineWidth = -1;
 static GLint g_betterJfaComposeAntialiasing = -1;
 static GLint g_betterJfaComposeInteriorOutline = -1;
+static GLint g_betterJfaComposeExteriorOutline = -1;
+static GLint g_blurStencil = -1;
+static GLint g_blurInput = -1;
+static GLint g_blurScene = -1;
+static GLint g_blurPassMode = -1;
+static GLint g_blurRadius = -1;
+static GLint g_blurType = -1;
+static GLint g_blurDirection = -1;
+static GLint g_blurInteriorOutline = -1;
+static GLint g_blurExteriorOutline = -1;
 static GLint g_presentTexture = -1;
 int g_width = 960;
 int g_height = 640;
@@ -217,10 +231,11 @@ static Quaternion g_rotation = { 1.0f, 0.0f, 0.0f, 0.0f };
 static const float g_distance = 6.0f;
 static float g_fieldOfView = 60.0f;
 static float g_backgroundColor[3] = { 1.0f, 1.0f, 1.0f };
-static int g_outlineImplementation = 0;
+static OutlineImplementation g_outlineImplementation = OutlineBruteForce;
 static float g_outlineWidthPixels = 4.0f;
 static bool g_outlineAntialiasing = true;
-static bool g_interiorOutline = false;
+static bool g_interiorOutline = true;
+static bool g_exteriorOutline = true;
 static bool g_msaaEnabled = false;
 static float g_panX = 0.0f;
 static float g_panY = 0.0f;
@@ -913,6 +928,7 @@ static void RenderJfaOutline(void)
     glUniform1f(g_jfaComposeOutlineWidth, g_outlineWidthPixels);
     glUniform1i(g_jfaComposeAntialiasing, g_outlineAntialiasing ? 1 : 0);
     glUniform1i(g_jfaComposeInteriorOutline, g_interiorOutline ? 1 : 0);
+    glUniform1i(g_jfaComposeExteriorOutline, g_exteriorOutline ? 1 : 0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, g_colorTexture);
     glActiveTexture(GL_TEXTURE0 + 1);
@@ -944,7 +960,7 @@ static GLuint RunBetterJfaPasses(void)
     GLuint outputTexture = g_jfaTextureB;
     int iterationCount = 0;
     int stepWidth = 1;
-    const int requiredWidth = (int)ceil(g_outlineWidthPixels + 1.0f);
+    const int requiredWidth = (int)ceil((g_outlineWidthPixels * 0.5f) + 1.0f);
     while (stepWidth < requiredWidth)
     {
         stepWidth <<= 1;
@@ -1008,6 +1024,7 @@ static void RenderBetterJfaOutline(void)
     glUniform1f(g_betterJfaComposeOutlineWidth, g_outlineWidthPixels);
     glUniform1i(g_betterJfaComposeAntialiasing, g_outlineAntialiasing ? 1 : 0);
     glUniform1i(g_betterJfaComposeInteriorOutline, g_interiorOutline ? 1 : 0);
+    glUniform1i(g_betterJfaComposeExteriorOutline, g_exteriorOutline ? 1 : 0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, g_colorTexture);
     glActiveTexture(GL_TEXTURE0 + 1);
@@ -1016,6 +1033,51 @@ static void RenderBetterJfaOutline(void)
     glBindTexture(GL_TEXTURE_2D, jfaResult);
     glDrawArrays(GL_TRIANGLES, 0, 3);
 }
+
+static void RenderBlurOutline(int blurType)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, g_jfaFramebuffer);
+    glViewport(0, 0, g_width, g_height);
+    glDisable(GL_DEPTH_TEST);
+    glUseProgram(g_blurProgram);
+    glUniform1i(g_blurPassMode, 0);
+    const GLint blurRadius = (GLint)ceil(max(0.5f, g_outlineWidthPixels * 0.5f));
+    glUniform1i(g_blurRadius, blurRadius);
+    glUniform1i(g_blurType, blurType);
+    glUniform2f(g_blurDirection, 1.0f, 0.0f);
+    glUniform1i(g_blurStencil, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+    AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_jfaTextureA, "gaussian-horizontal");
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    glUniform1i(g_blurPassMode, 1);
+    glUniform2f(g_blurDirection, 0.0f, 1.0f);
+    glUniform1i(g_blurInput, 1);
+    glActiveTexture(GL_TEXTURE0 + 1);
+    glBindTexture(GL_TEXTURE_2D, g_jfaTextureA);
+    AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_jfaTextureB, "gaussian-vertical");
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    glBindFramebuffer(GL_FRAMEBUFFER, g_outlineFramebuffer);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glUseProgram(g_blurProgram);
+    glUniform1i(g_blurPassMode, 2);
+    glUniform1i(g_blurRadius, blurRadius);
+    glUniform1i(g_blurInput, 1);
+    glUniform1i(g_blurScene, 2);
+    glUniform1i(g_blurStencil, 3);
+    glUniform1i(g_blurInteriorOutline, g_interiorOutline ? 1 : 0);
+    glUniform1i(g_blurExteriorOutline, g_exteriorOutline ? 1 : 0);
+    glActiveTexture(GL_TEXTURE0 + 1);
+    glBindTexture(GL_TEXTURE_2D, g_jfaTextureB);
+    glActiveTexture(GL_TEXTURE0 + 2);
+    glBindTexture(GL_TEXTURE_2D, g_colorTexture);
+    glActiveTexture(GL_TEXTURE0 + 3);
+    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
 bool Renderer_Initialize(void)
 {
     if (!LoadFunctions())
@@ -1026,7 +1088,7 @@ bool Renderer_Initialize(void)
 
     std::string cubeVertex, cubeFragment, screenVertex, screenFragment, presentFragment;
     std::string jfaSeedFragment, jfaStepFragment, jfaComposeFragment;
-    std::string betterJfaSeedFragment, betterJfaAxisFragment, betterJfaComposeFragment;
+    std::string betterJfaSeedFragment, betterJfaAxisFragment, betterJfaComposeFragment, blurFragment;
     if (!LoadShaderSource("cube.vert", cubeVertex) ||
         !LoadShaderSource("cube.frag", cubeFragment) ||
         !LoadShaderSource("fullscreen.vert", screenVertex) ||
@@ -1037,6 +1099,7 @@ bool Renderer_Initialize(void)
         !LoadShaderSource("better_jfa_seed.frag", betterJfaSeedFragment) ||
         !LoadShaderSource("better_jfa_axis.frag", betterJfaAxisFragment) ||
         !LoadShaderSource("better_jfa_compose.frag", betterJfaComposeFragment) ||
+        !LoadShaderSource("blur_outline.frag", blurFragment) ||
         !LoadShaderSource("present.frag", presentFragment))
     {
         Fail("Unable to load shader files from the shaders directory.");
@@ -1050,9 +1113,10 @@ bool Renderer_Initialize(void)
     g_betterJfaSeedProgram = CreateProgram(screenVertex.c_str(), betterJfaSeedFragment.c_str());
     g_betterJfaAxisProgram = CreateProgram(screenVertex.c_str(), betterJfaAxisFragment.c_str());
     g_betterJfaComposeProgram = CreateProgram(screenVertex.c_str(), betterJfaComposeFragment.c_str());
+    g_blurProgram = CreateProgram(screenVertex.c_str(), blurFragment.c_str());
     g_presentProgram = CreateProgram(screenVertex.c_str(), presentFragment.c_str());
     if (!g_cubeProgram || !g_screenProgram || !g_jfaSeedProgram || !g_jfaStepProgram || !g_jfaComposeProgram ||
-        !g_betterJfaSeedProgram || !g_betterJfaAxisProgram || !g_betterJfaComposeProgram || !g_presentProgram) return false;
+        !g_betterJfaSeedProgram || !g_betterJfaAxisProgram || !g_betterJfaComposeProgram || !g_blurProgram || !g_presentProgram) return false;
     g_cubeMatrix = glGetUniformLocation(g_cubeProgram, "mvp");
     g_cubeModelView = glGetUniformLocation(g_cubeProgram, "modelView");
     g_screenTexture = glGetUniformLocation(g_screenProgram, "sceneColor");
@@ -1062,6 +1126,7 @@ bool Renderer_Initialize(void)
     g_screenOutlineWidth = glGetUniformLocation(g_screenProgram, "outlineWidth");
     g_screenOutlineAntialiasing = glGetUniformLocation(g_screenProgram, "outlineAntialiasing");
     g_screenInteriorOutline = glGetUniformLocation(g_screenProgram, "interiorOutline");
+    g_screenExteriorOutline = glGetUniformLocation(g_screenProgram, "exteriorOutline");
     g_jfaSeedStencil = glGetUniformLocation(g_jfaSeedProgram, "stencilMask");
     g_jfaStepInput = glGetUniformLocation(g_jfaStepProgram, "jfaInput");
     g_jfaStepJumpDistance = glGetUniformLocation(g_jfaStepProgram, "jumpDistance");
@@ -1071,6 +1136,7 @@ bool Renderer_Initialize(void)
     g_jfaComposeOutlineWidth = glGetUniformLocation(g_jfaComposeProgram, "outlineWidth");
     g_jfaComposeAntialiasing = glGetUniformLocation(g_jfaComposeProgram, "outlineAntialiasing");
     g_jfaComposeInteriorOutline = glGetUniformLocation(g_jfaComposeProgram, "interiorOutline");
+    g_jfaComposeExteriorOutline = glGetUniformLocation(g_jfaComposeProgram, "exteriorOutline");
     g_betterJfaSeedStencil = glGetUniformLocation(g_betterJfaSeedProgram, "stencilMask");
     g_betterJfaAxisInput = glGetUniformLocation(g_betterJfaAxisProgram, "jfaInput");
     g_betterJfaAxisWidth = glGetUniformLocation(g_betterJfaAxisProgram, "axisWidth");
@@ -1080,6 +1146,16 @@ bool Renderer_Initialize(void)
     g_betterJfaComposeOutlineWidth = glGetUniformLocation(g_betterJfaComposeProgram, "outlineWidth");
     g_betterJfaComposeAntialiasing = glGetUniformLocation(g_betterJfaComposeProgram, "outlineAntialiasing");
     g_betterJfaComposeInteriorOutline = glGetUniformLocation(g_betterJfaComposeProgram, "interiorOutline");
+    g_betterJfaComposeExteriorOutline = glGetUniformLocation(g_betterJfaComposeProgram, "exteriorOutline");
+    g_blurStencil = glGetUniformLocation(g_blurProgram, "stencilMask");
+    g_blurInput = glGetUniformLocation(g_blurProgram, "blurInput");
+    g_blurScene = glGetUniformLocation(g_blurProgram, "sceneColor");
+    g_blurPassMode = glGetUniformLocation(g_blurProgram, "passMode");
+    g_blurRadius = glGetUniformLocation(g_blurProgram, "blurRadius");
+    g_blurType = glGetUniformLocation(g_blurProgram, "blurType");
+    g_blurDirection = glGetUniformLocation(g_blurProgram, "blurDirection");
+    g_blurInteriorOutline = glGetUniformLocation(g_blurProgram, "interiorOutline");
+    g_blurExteriorOutline = glGetUniformLocation(g_blurProgram, "exteriorOutline");
     g_presentTexture = glGetUniformLocation(g_presentProgram, "screenTexture");
 
     glGenVertexArrays(1, &g_cubeVao);
@@ -1141,13 +1217,21 @@ void Renderer_Render(void)
 
     DebugMessage("Begin outline pass");
     glDisable(GL_STENCIL_TEST);
-    if (g_outlineImplementation == 2)
+    if (g_outlineImplementation == OutlineJumpFlood)
     {
         RenderJfaOutline();
     }
-    else if (g_outlineImplementation == 4)
+    else if (g_outlineImplementation == OutlineBetterJfa)
     {
         RenderBetterJfaOutline();
+    }
+    else if (g_outlineImplementation == OutlineGaussianBlur)
+    {
+        RenderBlurOutline(0);
+    }
+    else if (g_outlineImplementation == OutlineBoxBlur)
+    {
+        RenderBlurOutline(1);
     }
     else
     {
@@ -1162,6 +1246,7 @@ void Renderer_Render(void)
         glUniform1f(g_screenOutlineWidth, g_outlineWidthPixels);
         glUniform1i(g_screenOutlineAntialiasing, g_outlineAntialiasing ? 1 : 0);
         glUniform1i(g_screenInteriorOutline, g_interiorOutline ? 1 : 0);
+        glUniform1i(g_screenExteriorOutline, g_exteriorOutline ? 1 : 0);
         glUniform2f(g_screenTexelSize, 1.0f / (float)g_width, 1.0f / (float)g_height);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, g_colorTexture);
@@ -1250,6 +1335,7 @@ void Renderer_Shutdown(void)
     if (g_betterJfaSeedProgram) glDeleteProgram(g_betterJfaSeedProgram);
     if (g_betterJfaAxisProgram) glDeleteProgram(g_betterJfaAxisProgram);
     if (g_betterJfaComposeProgram) glDeleteProgram(g_betterJfaComposeProgram);
+    if (g_blurProgram) glDeleteProgram(g_blurProgram);
     if (g_presentProgram) glDeleteProgram(g_presentProgram);
     if (g_framebuffer) glDeleteFramebuffers(1, &g_framebuffer);
     if (g_msaaFramebuffer) glDeleteFramebuffers(1, &g_msaaFramebuffer);
@@ -1290,17 +1376,17 @@ bool Renderer_LoadObj(const char* filename)
     return true;
 }
 
-void Renderer_SetOutlineImplementation(int implementation)
+void Renderer_SetOutlineImplementation(OutlineImplementation implementation)
 {
-    if (implementation < 0)
+    if (implementation < OutlineBruteForce)
     {
-        g_outlineImplementation = 0;
+        g_outlineImplementation = OutlineBruteForce;
         return;
     }
 
-    if (implementation > 4)
+    if (implementation > OutlineBoxBlur)
     {
-        g_outlineImplementation = 4;
+        g_outlineImplementation = OutlineBoxBlur;
         return;
     }
 
@@ -1333,6 +1419,11 @@ void Renderer_SetOutlineAntialiasing(bool enabled)
 void Renderer_SetInteriorOutline(bool enabled)
 {
     g_interiorOutline = enabled;
+}
+
+void Renderer_SetExteriorOutline(bool enabled)
+{
+    g_exteriorOutline = enabled;
 }
 
 void Renderer_SetMsaaEnabled(bool enabled)

@@ -6,6 +6,7 @@ uniform sampler2D jfaResult;
 uniform float outlineWidth;
 uniform int outlineAntialiasing;
 uniform int interiorOutline;
+uniform int exteriorOutline;
 out vec4 color;
 
 float InteriorCoverage(ivec2 pixel, ivec2 size, int radius)
@@ -21,8 +22,8 @@ float InteriorCoverage(ivec2 pixel, ivec2 size, int radius)
     }
     if (nearestDistance >= 1.0e29) return 0.0;
     return outlineAntialiasing != 0
-        ? 1.0 - smoothstep(float(radius) - 1.0, float(radius) + 1.0, nearestDistance)
-        : (nearestDistance <= float(radius) ? 1.0 : 0.0);
+        ? 1.0 - smoothstep(max(0.5, outlineWidth * 0.5) - 1.0, max(0.5, outlineWidth * 0.5) + 1.0, nearestDistance)
+        : (nearestDistance <= max(0.5, outlineWidth * 0.5) ? 1.0 : 0.0);
 }
 
 void main()
@@ -32,8 +33,13 @@ void main()
     ivec2 pixel = clamp(ivec2(gl_FragCoord.xy), ivec2(0), size - 1);
     if (texelFetch(stencilMask, pixel, 0).r != 0u)
     {
-        float coverage = interiorOutline != 0 ? InteriorCoverage(pixel, size, int(outlineWidth + 0.5)) : 0.0;
+        float coverage = interiorOutline != 0 ? InteriorCoverage(pixel, size, int(ceil(max(0.5, outlineWidth * 0.5)))) : 0.0;
         color = vec4(mix(scene.rgb, vec3(1.0, 0.0, 0.0), coverage), 1.0);
+        return;
+    }
+    if (exteriorOutline == 0)
+    {
+        color = scene;
         return;
     }
 
@@ -48,11 +54,11 @@ void main()
     float coverage;
     if (outlineAntialiasing != 0)
     {
-        coverage = clamp(outlineWidth - distanceToSilhouette + 1.0, 0.0, 1.0);
+        coverage = clamp(max(0.5, outlineWidth * 0.5) - distanceToSilhouette + 1.0, 0.0, 1.0);
     }
     else
     {
-        coverage = distanceToSilhouette <= outlineWidth ? 1.0 : 0.0;
+        coverage = distanceToSilhouette <= max(0.5, outlineWidth * 0.5) ? 1.0 : 0.0;
     }
 
     color = vec4(mix(scene.rgb, vec3(1.0, 0.0, 0.0), coverage), 1.0);

@@ -40,6 +40,7 @@ set(SHADER_FILES
     shaders/cube.frag
     shaders/fullscreen.vert
     shaders/outline.frag
+    shaders/blur_outline.frag
     shaders/jfa_seed.frag
     shaders/jfa_step.frag
     shaders/jfa_compose.frag

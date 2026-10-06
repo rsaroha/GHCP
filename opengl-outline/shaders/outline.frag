@@ -7,6 +7,7 @@ uniform int outlineImplementation;
 uniform float outlineWidth;
 uniform int outlineAntialiasing;
 uniform int interiorOutline;
+uniform int exteriorOutline;
 out vec4 color;
 
 uint ReadStencil(ivec2 pixel, ivec2 size)
@@ -17,9 +18,14 @@ uint ReadStencil(ivec2 pixel, ivec2 size)
 
 int ComputeOutlineRadius()
 {
-    int radius = int(outlineWidth + 0.5);
+    int radius = int(ceil(max(0.5, outlineWidth * 0.5)));
     radius = clamp(radius, 1, 100);
     return radius;
+}
+
+float ComputeOutlineRadiusPixels()
+{
+    return max(0.5, outlineWidth * 0.5);
 }
 
 float ComputeBruteForceDistance(ivec2 pixel, ivec2 size, int radius, uint targetStencil)
@@ -71,9 +77,9 @@ float ComputeCrossDistance(ivec2 pixel, ivec2 size, int radius, uint targetStenc
 
 float ComputeGaussianCoverage(ivec2 pixel, ivec2 size)
 {
-    float sigma = max(outlineWidth * 0.5, 0.5);
+    float sigma = max(ComputeOutlineRadiusPixels() * 0.5, 0.5);
     float twoSigmaSquared = 2.0 * sigma * sigma;
-    int radius = clamp(int(ceil(outlineWidth)), 1, 32);
+    int radius = clamp(int(ceil(ComputeOutlineRadiusPixels())), 1, 32);
     float weightedMask = 0.0;
     float totalWeight = 0.0;
 
@@ -128,9 +134,9 @@ float ComputeInteriorCoverage(ivec2 pixel, ivec2 size, int radius)
     }
     if (outlineAntialiasing != 0)
     {
-        return 1.0 - smoothstep(float(radius) - 1.0, float(radius) + 1.0, nearestDistance);
+        return 1.0 - smoothstep(ComputeOutlineRadiusPixels() - 1.0, ComputeOutlineRadiusPixels() + 1.0, nearestDistance);
     }
-    return nearestDistance <= float(radius) ? 1.0 : 0.0;
+    return nearestDistance <= ComputeOutlineRadiusPixels() ? 1.0 : 0.0;
 }
 
 void main()
@@ -163,18 +169,22 @@ void main()
         {
             float antialiasWidth = max(fwidth(nearestDistance), 1.0);
             outlineCoverage = 1.0 - smoothstep(
-                outlineWidth - antialiasWidth,
-                outlineWidth + antialiasWidth,
+                ComputeOutlineRadiusPixels() - antialiasWidth,
+                ComputeOutlineRadiusPixels() + antialiasWidth,
                 nearestDistance);
         }
         else
         {
-            outlineCoverage = nearestDistance <= outlineWidth ? 1.0 : 0.0;
+            outlineCoverage = nearestDistance <= ComputeOutlineRadiusPixels() ? 1.0 : 0.0;
         }
     }
     if (center != 0u)
     {
         outlineCoverage = interiorOutline != 0 ? ComputeInteriorCoverage(pixel, size, radius) : 0.0;
+    }
+    else if (exteriorOutline == 0)
+    {
+        outlineCoverage = 0.0;
     }
     vec3 result = mix(scene.rgb, vec3(1.0, 0.0, 0.0), outlineCoverage);
     color = vec4(result, 1.0);
