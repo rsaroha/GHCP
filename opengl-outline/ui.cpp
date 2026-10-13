@@ -112,7 +112,6 @@ bool Ui_NewFrame(void)
     const char* outlineImplementationNames[] = {
         "No outline",
         "Brute-force",
-        "Cross kernel",
         "Jump flood (JFA)",
         "Better-JFA",
         "Gaussian blur",

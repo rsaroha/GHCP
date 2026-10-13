@@ -76,9 +76,7 @@ All shader source is external and loaded at runtime:
   - No fullscreen VAO-specific vertex data is required.
 
 - `shaders/outline.frag`
-  - Contains selectable non-JFA outline implementations.
-  - `Brute-force`: 9x9 stencil neighborhood search.
-  - `Cross kernel`: horizontal + vertical stencil neighborhood search.
+  - Contains the brute-force stencil neighborhood outline path.
 - `shaders/jfa_seed.frag`
   - Initializes jump-flood seeds from stencil-marked pixels.
 - `shaders/jfa_step.frag`
@@ -219,13 +217,14 @@ Win32 mouse messages are first sent to ImGui. If ImGui captures the mouse, model
 - The `Load OBJ...` button opens a native file picker and loads triangle geometry
   with `third_party/tiny_obj_loader.h`. Loaded models are centered and uniformly
   scaled to fit the existing camera; the default cube is used at startup.
-- The UI includes buttons to switch outline implementation:
-  - `Brute-force` (9x9 neighborhood)
-  - `Cross kernel` (horizontal + vertical neighborhood)
+- The UI includes a combo to switch outline implementation:
+  - `Brute-force` (square stencil neighborhood)
   - `Jump flood` (multi-pass jump-flood distance propagation)
-  - `Gaussian blur` (Gaussian-weighted stencil-mask blur)
   - `Better-JFA` (Sobel/subpixel initialization plus separable horizontal/vertical JFA)
-- The UI includes an `Outline thickness (px)` slider (1..32) that is sent to
+  - `Gaussian blur` (Gaussian-weighted stencil-mask blur)
+  - `Box blur`
+  - `Sobel`
+- The UI includes an `Outline thickness (px)` slider (1..100) that is sent to
   outline shaders.
 - The UI includes an `Antialiased outline` checkbox that toggles smooth
   `fwidth`/`smoothstep` coverage versus hard-edged outline coverage in all
@@ -302,8 +301,8 @@ Current renderer behavior:
   `build`.
 - Outline implementation, thickness, antialiasing, and MSAA x8 are controlled
   from the ImGui panel.
-- The outline implementation choices are brute-force, cross-kernel, jump flood,
-  and Gaussian blur.
+- The outline implementation choices are brute-force, jump flood, Better-JFA,
+  Gaussian blur, box blur, and Sobel.
 
 - The outline width is controlled by the UI and passed to all outline shaders.
 - The neighborhood is square (`9 x 9` samples), so the visual shape is a square-radius expansion rather than an exact Euclidean-radius outline.

@@ -12,12 +12,11 @@ enum OutlineImplementation
 {
     OutlineNone = 0,
     OutlineBruteForce = 1,
-    OutlineCrossKernel = 2,
-    OutlineJumpFlood = 3,
-    OutlineBetterJfa = 4,
-    OutlineGaussianBlur = 5,
-    OutlineBoxBlur = 6,
-    OutlineSobel = 7
+    OutlineJumpFlood = 2,
+    OutlineBetterJfa = 3,
+    OutlineGaussianBlur = 4,
+    OutlineBoxBlur = 5,
+    OutlineSobel = 6
 };
 void Renderer_MouseButton(int button, bool down, int x, int y);
 void Renderer_MouseMove(int x, int y);

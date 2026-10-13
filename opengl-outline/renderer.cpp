@@ -212,7 +212,6 @@ static bool g_fxaaTimerIssued = false;
 static GLint g_cubeMatrix = -1;
 static GLint g_cubeModelView = -1;
 static GLint g_screenStencil = -1;
-static GLint g_screenOutlineImplementation = -1;
 static GLint g_screenOutlineWidth = -1;
 static GLint g_screenOutlineAntialiasing = -1;
 static GLint g_screenInteriorOutline = -1;
@@ -1207,7 +1206,6 @@ static void RenderBruteForceOutline(void)
     glDisable(GL_DEPTH_TEST);
     glUseProgram(g_screenProgram);
     glUniform1i(g_screenStencil, 0);
-    glUniform1i(g_screenOutlineImplementation, g_outlineImplementation);
     glUniform1f(g_screenOutlineWidth, g_outlineWidthPixels);
     glUniform1i(g_screenOutlineAntialiasing, g_outlineAntialiasing ? 1 : 0);
     glUniform1i(g_screenInteriorOutline, g_interiorOutline ? 1 : 0);
@@ -1290,7 +1288,6 @@ bool Renderer_Initialize(void)
     g_cubeMatrix = glGetUniformLocation(g_cubeProgram, "mvp");
     g_cubeModelView = glGetUniformLocation(g_cubeProgram, "modelView");
     g_screenStencil = glGetUniformLocation(g_screenProgram, "stencilMask");
-    g_screenOutlineImplementation = glGetUniformLocation(g_screenProgram, "outlineImplementation");
     g_screenOutlineWidth = glGetUniformLocation(g_screenProgram, "outlineWidth");
     g_screenOutlineAntialiasing = glGetUniformLocation(g_screenProgram, "outlineAntialiasing");
     g_screenInteriorOutline = glGetUniformLocation(g_screenProgram, "interiorOutline");
