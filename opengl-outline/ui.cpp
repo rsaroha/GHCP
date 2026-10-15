@@ -66,6 +66,7 @@ bool Ui_NewFrame(void)
     static bool interiorOutline = true;
     static bool exteriorOutline = true;
     static bool postFxaa = false;
+    static bool fxaaAlphaOnly = true;
     static bool msaa8Enabled = false;
     static std::string loadedObjFilename = "Default cube";
     bool uiChanged = false;
@@ -78,6 +79,7 @@ bool Ui_NewFrame(void)
     Renderer_SetInteriorOutline(interiorOutline);
     Renderer_SetExteriorOutline(exteriorOutline);
     Renderer_SetPostFxaa(postFxaa);
+    Renderer_SetFxaaAlphaOnly(fxaaAlphaOnly);
     Renderer_SetMsaaEnabled(msaa8Enabled);
 
     ImGui::Begin("OpenGL Outline Demo");
@@ -140,6 +142,10 @@ bool Ui_NewFrame(void)
     uiChanged |= ImGui::Checkbox("Interior outline", &interiorOutline);
     uiChanged |= ImGui::Checkbox("Exterior outline", &exteriorOutline);
     uiChanged |= ImGui::Checkbox("post AA - FXAA", &postFxaa);
+    if (postFxaa)
+    {
+        uiChanged |= ImGui::Checkbox("FXAA alpha only", &fxaaAlphaOnly);
+    }
     ImGui::Text("Outline thickness (px)");
     //ImGui::SameLine();
     ImGui::SetNextItemWidth(160.0f);

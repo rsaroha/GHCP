@@ -37,6 +37,7 @@ void Renderer_SetOutlineAntialiasing(bool enabled);
 void Renderer_SetInteriorOutline(bool enabled);
 void Renderer_SetExteriorOutline(bool enabled);
 void Renderer_SetPostFxaa(bool enabled);
+void Renderer_SetFxaaAlphaOnly(bool enabled);
 void Renderer_SetMsaaEnabled(bool enabled);
 double Renderer_GetSceneTimeMicroseconds(void);
 double Renderer_GetOutlineTimeMicroseconds(void);

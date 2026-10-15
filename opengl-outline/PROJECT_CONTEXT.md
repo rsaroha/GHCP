@@ -229,6 +229,8 @@ Win32 mouse messages are first sent to ImGui. If ImGui captures the mouse, model
 - The UI includes an `Antialiased outline` checkbox that toggles smooth
   `fwidth`/`smoothstep` coverage versus hard-edged outline coverage in all
   outline composition shaders.
+- The post-FXAA pass defaults to filtering outline alpha only; when enabled, the
+  `FXAA alpha only` checkbox can be cleared to filter the full RGBA texture.
 - The UI includes an `MSAA x8` checkbox. When enabled, the main scene renders
   into multisampled color + depth-stencil textures and is resolved into the
   single-sample main FBO before outline passes.

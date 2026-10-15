@@ -250,6 +250,7 @@ static GLint g_blurDirection = -1;
 static GLint g_blurInteriorOutline = -1;
 static GLint g_blurExteriorOutline = -1;
 static GLint g_fxaaInput = -1;
+static GLint g_fxaaAlphaOnly = -1;
 static GLint g_presentTexture = -1;
 static GLint g_presentOutlineTexture = -1;
 int g_width = 960;
@@ -266,6 +267,7 @@ static bool g_outlineAntialiasing = true;
 static bool g_interiorOutline = true;
 static bool g_exteriorOutline = true;
 static bool g_postFxaa = false;
+static bool g_fxaaAlphaOnlyEnabled = true;
 static double g_sceneTimeMicroseconds = 0.0;
 static double g_outlineTimeMicroseconds = 0.0;
 static double g_fxaaTimeMicroseconds = 0.0;
@@ -1233,6 +1235,7 @@ static void RenderFxaa(void)
     glClear(GL_COLOR_BUFFER_BIT);
     glUseProgram(g_fxaaProgram);
     glUniform1i(g_fxaaInput, 0);
+    glUniform1i(g_fxaaAlphaOnly, g_fxaaAlphaOnlyEnabled ? 1 : 0);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, g_outlineTexture);
     glDrawArrays(GL_TRIANGLES, 0, 3);
@@ -1326,6 +1329,7 @@ bool Renderer_Initialize(void)
     g_blurInteriorOutline = glGetUniformLocation(g_blurProgram, "interiorOutline");
     g_blurExteriorOutline = glGetUniformLocation(g_blurProgram, "exteriorOutline");
     g_fxaaInput = glGetUniformLocation(g_fxaaProgram, "outlineTexture");
+    g_fxaaAlphaOnly = glGetUniformLocation(g_fxaaProgram, "alphaOnly");
     g_presentTexture = glGetUniformLocation(g_presentProgram, "sceneTexture");
     g_presentOutlineTexture = glGetUniformLocation(g_presentProgram, "outlineTexture");
 
@@ -1662,6 +1666,11 @@ void Renderer_SetExteriorOutline(bool enabled)
 void Renderer_SetPostFxaa(bool enabled)
 {
     g_postFxaa = enabled;
+}
+
+void Renderer_SetFxaaAlphaOnly(bool enabled)
+{
+    g_fxaaAlphaOnlyEnabled = enabled;
 }
 
 double Renderer_GetSceneTimeMicroseconds(void)
