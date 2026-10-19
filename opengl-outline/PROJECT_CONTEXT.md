@@ -83,6 +83,13 @@ All shader source is external and loaded at runtime:
   - Executes one jump-flood propagation step over the seed buffer.
 - `shaders/jfa_compose.frag`
   - Composites scene color with an outline using the final jump-flood result.
+- `shaders/jfa2_seed.frag`
+  - Initializes a signed distance seed at every pixel from the stencil mask.
+- `shaders/jfa2_step.frag`
+  - Propagates the nearest opposite-side seed using the signed-distance JFA
+    algorithm from `index.js`.
+- `shaders/jfa2_compose.frag`
+  - Applies the selected interior/exterior outline to the signed-distance field.
 - `shaders/better_jfa_seed.frag`
   - Unity-style Sobel/subpixel seed initialization from the stencil silhouette.
 - `shaders/better_jfa_axis.frag`
@@ -220,6 +227,7 @@ Win32 mouse messages are first sent to ImGui. If ImGui captures the mouse, model
 - The UI includes a combo to switch outline implementation:
   - `Brute-force` (square stencil neighborhood)
   - `Jump flood` (multi-pass jump-flood distance propagation)
+  - `JFA2` (signed-distance jump flood based on the `index.js` implementation)
   - `Better-JFA` (Sobel/subpixel initialization plus separable horizontal/vertical JFA)
   - `Gaussian blur` (Gaussian-weighted stencil-mask blur)
   - `Box blur`

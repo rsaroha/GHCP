@@ -118,11 +118,12 @@ bool Ui_NewFrame(void)
         "Better-JFA",
         "Gaussian blur",
         "Box blur",
-        "Sobel"
+        "Sobel",
+        "JFA2"
     };
     int outlineImplementationIndex = (int)outlineImplementation;
     if (outlineImplementationIndex < (int)OutlineNone ||
-        outlineImplementationIndex > (int)OutlineSobel)
+        outlineImplementationIndex > (int)OutlineJfa2)
     {
         outlineImplementation = OutlineNone;
         outlineImplementationIndex = (int)outlineImplementation;

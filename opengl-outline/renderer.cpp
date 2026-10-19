@@ -184,6 +184,9 @@ static GLuint g_sobelProgram = 0;
 static GLuint g_jfaSeedProgram = 0;
 static GLuint g_jfaStepProgram = 0;
 static GLuint g_jfaComposeProgram = 0;
+static GLuint g_jfa2SeedProgram = 0;
+static GLuint g_jfa2StepProgram = 0;
+static GLuint g_jfa2ComposeProgram = 0;
 static GLuint g_betterJfaSeedProgram = 0;
 static GLuint g_betterJfaAxisProgram = 0;
 static GLuint g_betterJfaComposeProgram = 0;
@@ -232,6 +235,15 @@ static GLint g_jfaComposeOutlineWidth = -1;
 static GLint g_jfaComposeAntialiasing = -1;
 static GLint g_jfaComposeInteriorOutline = -1;
 static GLint g_jfaComposeExteriorOutline = -1;
+static GLint g_jfa2SeedStencil = -1;
+static GLint g_jfa2StepInput = -1;
+static GLint g_jfa2StepSize = -1;
+static GLint g_jfa2ComposeStencil = -1;
+static GLint g_jfa2ComposeResult = -1;
+static GLint g_jfa2ComposeOutlineWidth = -1;
+static GLint g_jfa2ComposeAntialiasing = -1;
+static GLint g_jfa2ComposeInteriorOutline = -1;
+static GLint g_jfa2ComposeExteriorOutline = -1;
 static GLint g_betterJfaSeedStencil = -1;
 static GLint g_betterJfaAxisInput = -1;
 static GLint g_betterJfaAxisWidth = -1;
@@ -1038,6 +1050,88 @@ static void RenderJfaOutline(void)
     glDrawArrays(GL_TRIANGLES, 0, 3);
 }
 
+static GLuint RunJfa2Passes(void)
+{
+    glBindFramebuffer(GL_FRAMEBUFFER, g_jfaFramebuffer);
+    glViewport(0, 0, g_width, g_height);
+    glDisable(GL_DEPTH_TEST);
+
+    if (!AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, g_jfaTextureA, "jfa2-seed-target"))
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return 0;
+    }
+
+    glUseProgram(g_jfa2SeedProgram);
+    glUniform1i(g_jfa2SeedStencil, 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+
+    GLuint inputTexture = g_jfaTextureA;
+    GLuint outputTexture = g_jfaTextureB;
+    const int maxDimension = g_width > g_height ? g_width : g_height;
+    int stepSize = (int)ceil(max(0.5f, g_outlineWidthPixels * 0.5f));
+    if (stepSize > maxDimension)
+    {
+        stepSize = maxDimension;
+    }
+
+    while (true)
+    {
+        if (!AttachFramebufferTexture(GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, outputTexture, "jfa2-step-target"))
+        {
+            glBindFramebuffer(GL_FRAMEBUFFER, 0);
+            return 0;
+        }
+
+        glUseProgram(g_jfa2StepProgram);
+        glUniform1i(g_jfa2StepInput, 0);
+        glUniform1i(g_jfa2StepSize, stepSize);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, inputTexture);
+        glDrawArrays(GL_TRIANGLES, 0, 3);
+
+        GLuint temporary = inputTexture;
+        inputTexture = outputTexture;
+        outputTexture = temporary;
+        if (stepSize <= 1)
+        {
+            break;
+        }
+        stepSize = (stepSize + 1) / 2;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return inputTexture;
+}
+
+static void RenderJfa2Outline(void)
+{
+    GLuint jfaResult = RunJfa2Passes();
+    if (!jfaResult)
+    {
+        return;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, g_outlineFramebuffer);
+    glViewport(0, 0, g_width, g_height);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glDisable(GL_DEPTH_TEST);
+    glUseProgram(g_jfa2ComposeProgram);
+    glUniform1i(g_jfa2ComposeStencil, 0);
+    glUniform1i(g_jfa2ComposeResult, 1);
+    glUniform1f(g_jfa2ComposeOutlineWidth, g_outlineWidthPixels);
+    glUniform1i(g_jfa2ComposeAntialiasing, g_outlineAntialiasing ? 1 : 0);
+    glUniform1i(g_jfa2ComposeInteriorOutline, g_interiorOutline ? 1 : 0);
+    glUniform1i(g_jfa2ComposeExteriorOutline, g_exteriorOutline ? 1 : 0);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, g_depthTexture);
+    glActiveTexture(GL_TEXTURE0 + 1);
+    glBindTexture(GL_TEXTURE_2D, jfaResult);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
 static GLuint RunBetterJfaPasses(void)
 {
     glBindFramebuffer(GL_FRAMEBUFFER, g_jfaFramebuffer);
@@ -1255,6 +1349,7 @@ bool Renderer_Initialize(void)
 
     std::string cubeVertex, cubeFragment, screenVertex, screenFragment, presentFragment;
     std::string jfaSeedFragment, jfaStepFragment, jfaComposeFragment;
+    std::string jfa2SeedFragment, jfa2StepFragment, jfa2ComposeFragment;
     std::string betterJfaSeedFragment, betterJfaAxisFragment, betterJfaComposeFragment, blurFragment, fxaaFragment, sobelFragment;
     if (!LoadShaderSource("cube.vert", cubeVertex) ||
         !LoadShaderSource("cube.frag", cubeFragment) ||
@@ -1263,6 +1358,9 @@ bool Renderer_Initialize(void)
         !LoadShaderSource("jfa_seed.frag", jfaSeedFragment) ||
         !LoadShaderSource("jfa_step.frag", jfaStepFragment) ||
         !LoadShaderSource("jfa_compose.frag", jfaComposeFragment) ||
+        !LoadShaderSource("jfa2_seed.frag", jfa2SeedFragment) ||
+        !LoadShaderSource("jfa2_step.frag", jfa2StepFragment) ||
+        !LoadShaderSource("jfa2_compose.frag", jfa2ComposeFragment) ||
         !LoadShaderSource("better_jfa_seed.frag", betterJfaSeedFragment) ||
         !LoadShaderSource("better_jfa_axis.frag", betterJfaAxisFragment) ||
         !LoadShaderSource("better_jfa_compose.frag", betterJfaComposeFragment) ||
@@ -1280,6 +1378,9 @@ bool Renderer_Initialize(void)
     g_jfaSeedProgram = CreateProgram(screenVertex.c_str(), jfaSeedFragment.c_str());
     g_jfaStepProgram = CreateProgram(screenVertex.c_str(), jfaStepFragment.c_str());
     g_jfaComposeProgram = CreateProgram(screenVertex.c_str(), jfaComposeFragment.c_str());
+    g_jfa2SeedProgram = CreateProgram(screenVertex.c_str(), jfa2SeedFragment.c_str());
+    g_jfa2StepProgram = CreateProgram(screenVertex.c_str(), jfa2StepFragment.c_str());
+    g_jfa2ComposeProgram = CreateProgram(screenVertex.c_str(), jfa2ComposeFragment.c_str());
     g_betterJfaSeedProgram = CreateProgram(screenVertex.c_str(), betterJfaSeedFragment.c_str());
     g_betterJfaAxisProgram = CreateProgram(screenVertex.c_str(), betterJfaAxisFragment.c_str());
     g_betterJfaComposeProgram = CreateProgram(screenVertex.c_str(), betterJfaComposeFragment.c_str());
@@ -1287,6 +1388,7 @@ bool Renderer_Initialize(void)
     g_fxaaProgram = CreateProgram(screenVertex.c_str(), fxaaFragment.c_str());
     g_presentProgram = CreateProgram(screenVertex.c_str(), presentFragment.c_str());
     if (!g_cubeProgram || !g_screenProgram || !g_jfaSeedProgram || !g_jfaStepProgram || !g_jfaComposeProgram ||
+        !g_jfa2SeedProgram || !g_jfa2StepProgram || !g_jfa2ComposeProgram ||
         !g_betterJfaSeedProgram || !g_betterJfaAxisProgram || !g_betterJfaComposeProgram || !g_blurProgram || !g_sobelProgram || !g_fxaaProgram || !g_presentProgram) return false;
     g_cubeMatrix = glGetUniformLocation(g_cubeProgram, "mvp");
     g_cubeModelView = glGetUniformLocation(g_cubeProgram, "modelView");
@@ -1311,6 +1413,15 @@ bool Renderer_Initialize(void)
     g_jfaComposeAntialiasing = glGetUniformLocation(g_jfaComposeProgram, "outlineAntialiasing");
     g_jfaComposeInteriorOutline = glGetUniformLocation(g_jfaComposeProgram, "interiorOutline");
     g_jfaComposeExteriorOutline = glGetUniformLocation(g_jfaComposeProgram, "exteriorOutline");
+    g_jfa2SeedStencil = glGetUniformLocation(g_jfa2SeedProgram, "stencilMask");
+    g_jfa2StepInput = glGetUniformLocation(g_jfa2StepProgram, "jfaInput");
+    g_jfa2StepSize = glGetUniformLocation(g_jfa2StepProgram, "stepSize");
+    g_jfa2ComposeStencil = glGetUniformLocation(g_jfa2ComposeProgram, "stencilMask");
+    g_jfa2ComposeResult = glGetUniformLocation(g_jfa2ComposeProgram, "jfaResult");
+    g_jfa2ComposeOutlineWidth = glGetUniformLocation(g_jfa2ComposeProgram, "outlineWidth");
+    g_jfa2ComposeAntialiasing = glGetUniformLocation(g_jfa2ComposeProgram, "outlineAntialiasing");
+    g_jfa2ComposeInteriorOutline = glGetUniformLocation(g_jfa2ComposeProgram, "interiorOutline");
+    g_jfa2ComposeExteriorOutline = glGetUniformLocation(g_jfa2ComposeProgram, "exteriorOutline");
     g_betterJfaSeedStencil = glGetUniformLocation(g_betterJfaSeedProgram, "stencilMask");
     g_betterJfaAxisInput = glGetUniformLocation(g_betterJfaAxisProgram, "jfaInput");
     g_betterJfaAxisWidth = glGetUniformLocation(g_betterJfaAxisProgram, "axisWidth");
@@ -1450,6 +1561,10 @@ void Renderer_Render(void)
     {
         RenderJfaOutline();
     }
+    else if (g_outlineImplementation == OutlineJfa2)
+    {
+        RenderJfa2Outline();
+    }
     else if (g_outlineImplementation == OutlineBetterJfa)
     {
         RenderBetterJfaOutline();
@@ -1552,6 +1667,9 @@ void Renderer_Shutdown(void)
     if (g_jfaSeedProgram) glDeleteProgram(g_jfaSeedProgram);
     if (g_jfaStepProgram) glDeleteProgram(g_jfaStepProgram);
     if (g_jfaComposeProgram) glDeleteProgram(g_jfaComposeProgram);
+    if (g_jfa2SeedProgram) glDeleteProgram(g_jfa2SeedProgram);
+    if (g_jfa2StepProgram) glDeleteProgram(g_jfa2StepProgram);
+    if (g_jfa2ComposeProgram) glDeleteProgram(g_jfa2ComposeProgram);
     if (g_betterJfaSeedProgram) glDeleteProgram(g_betterJfaSeedProgram);
     if (g_betterJfaAxisProgram) glDeleteProgram(g_betterJfaAxisProgram);
     if (g_betterJfaComposeProgram) glDeleteProgram(g_betterJfaComposeProgram);
@@ -1621,9 +1739,9 @@ void Renderer_SetOutlineImplementation(OutlineImplementation implementation)
         return;
     }
 
-    if (implementation > OutlineSobel)
+    if (implementation > OutlineJfa2)
     {
-        g_outlineImplementation = OutlineSobel;
+        g_outlineImplementation = OutlineJfa2;
         return;
     }
 

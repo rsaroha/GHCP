@@ -44,6 +44,9 @@ set(SHADER_FILES
     shaders/jfa_seed.frag
     shaders/jfa_step.frag
     shaders/jfa_compose.frag
+    shaders/jfa2_seed.frag
+    shaders/jfa2_step.frag
+    shaders/jfa2_compose.frag
     shaders/better_jfa_seed.frag
     shaders/better_jfa_axis.frag
     shaders/better_jfa_compose.frag

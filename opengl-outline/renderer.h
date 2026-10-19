@@ -16,7 +16,8 @@ enum OutlineImplementation
     OutlineBetterJfa = 3,
     OutlineGaussianBlur = 4,
     OutlineBoxBlur = 5,
-    OutlineSobel = 6
+    OutlineSobel = 6,
+    OutlineJfa2 = 7
 };
 void Renderer_MouseButton(int button, bool down, int x, int y);
 void Renderer_MouseMove(int x, int y);
