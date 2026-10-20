@@ -24,7 +24,8 @@ The build uses the repository's `third_party/imgui` sources for Dear ImGui and i
 backends. GLSL programs are stored in `shaders/` and copied beside the executable during the build.
 The application creates its own OpenGL 3.3 core context and uses a multisample framebuffer backed
 by color and depth textures by default. The ImGui panel can disable FSAA; all framebuffer
-attachments use textures.
+attachments use textures. Scene, mask, seed, jump-flood, effect, UI, resolve, and presentation
+rendering are split into explicit passes; each pass checks for OpenGL errors at entry and exit.
 
 ## Controls
 

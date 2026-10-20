@@ -1255,6 +1255,7 @@ static GLuint litProgram, maskProgram, seedProgram, seedQuadProgram, expandProgr
     effectProgram, quadVao;
 static Mesh mesh;
 static Target field[2], mask[2];
+static Target presentationTarget;
 static MultisampleTarget multisampleOutput;
 static std::string modelName = "Procedural torus knot (demo fallback)";
 static std::string modelStatus = "Ready.";
@@ -1275,6 +1276,23 @@ static void setViewUniforms(GLuint p, const M4 &viewProj)
     glUniform2f(loc(p, "viewportSize"), (GLfloat)width, (GLfloat)height);
     glUniform2f(loc(p, "imagePan"), imagePanX, imagePanY);
     u1f(p, "imageZoom", imageZoom);
+}
+
+/**********************************************************************************
+ *   Function Name  : glDebug
+ *   Purpose : Report OpenGL errors found at the beginning or end of a render pass.
+ *
+ **********************************************************************************/
+static void glDebug(const char *pass, const char *phase)
+{
+    GLenum error = GL_NO_ERROR;
+    while ((error = glGetError()) != GL_NO_ERROR)
+    {
+        char message[256];
+        snprintf(message, sizeof(message), "OpenGL error 0x%04X at %s of %s pass.\n", error, phase,
+                 pass);
+        OutputDebugStringA(message);
+    }
 }
 
 /**********************************************************************************
@@ -1321,66 +1339,84 @@ static void resize(int w, int h)
 {
     width = std::max(w, 1);
     height = std::max(h, 1);
+    presentationTarget.resize(width, height);
     field[0].resize(width, height);
     field[1].resize(width, height);
     multisampleOutput.resize(width, height);
 }
 
 /**********************************************************************************
- *   Function Name  : render
- *   Purpose : Render the mesh, distance-field passes, and selected screen-space effect.
+ *   Function Name  : renderScenePass
+ *   Purpose : Draw the lit model into the selected scene framebuffer.
  *
  **********************************************************************************/
-static void render(float time)
+static void renderScenePass(const M4 &viewProj, V3 light, bool useFbo)
 {
-    const bool useFbo = !disableFsaa && multisampleOutput.available();
-
-    drawCalls = 0;
-    V3 eye = {cameraDistance * std::cos(pitch) * std::sin(yaw), cameraDistance * std::sin(pitch),
-              cameraDistance * std::cos(pitch) * std::cos(yaw)};
-    M4 vp = multiply(perspective(45, (float)width / height, .25f, 20),
-                     lookAt(eye, {0, 0, 0}, {0, 1, 0}));
-    V3 light = norm(eye + V3{.3f, .8f, 0});
+    glDebug("scene", "beginning");
     if (useFbo)
         multisampleOutput.bind();
     else
-    {
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, width, height);
-    }
+        presentationTarget.bind();
     glDisable(GL_BLEND);
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
     glClearColor(.529f, .529f, .529f, 1);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     glUseProgram(litProgram);
-    setViewUniforms(litProgram, vp);
+    setViewUniforms(litProgram, viewProj);
     glUniform3f(loc(litProgram, "lightDir"), light.x, light.y, light.z);
     drawMesh();
+    glDebug("scene", "end");
+}
 
-    int mw = std::max((int)std::floor(width / thickness), 3),
-        mh = std::max((int)std::floor(height / thickness), 3);
-    mask[0].resize(mw, mh);
-    mask[1].resize(mw, mh);
+/**********************************************************************************
+ *   Function Name  : renderMaskPass
+ *   Purpose : Render the mesh silhouette into the low-resolution mask framebuffer.
+ *
+ **********************************************************************************/
+static void renderMaskPass(const M4 &viewProj)
+{
+    glDebug("mask", "beginning");
+    int maskWidth = std::max((int)std::floor(width / thickness), 3);
+    int maskHeight = std::max((int)std::floor(height / thickness), 3);
+    mask[0].resize(maskWidth, maskHeight);
+    mask[1].resize(maskWidth, maskHeight);
     mask[0].bind();
     glDisable(GL_DEPTH_TEST);
     glClearColor(0, 0, 0, 0);
     glClear(GL_COLOR_BUFFER_BIT);
     glUseProgram(maskProgram);
-    setViewUniforms(maskProgram, vp);
+    setViewUniforms(maskProgram, viewProj);
     drawMesh();
+    glDebug("mask", "end");
+}
+
+/**********************************************************************************
+ *   Function Name  : expandMaskPass
+ *   Purpose : Expand the silhouette mask by four neighboring-texel passes.
+ *
+ **********************************************************************************/
+static int expandMaskPass(int maskSource)
+{
+    glDebug("mask expansion", "beginning");
     glUseProgram(expandProgram);
     u1i(expandProgram, "source", 0);
-    int maskSrc = 0;
-    for (int i = 0; i < 4; i++)
-    {
-        texture(0, mask[maskSrc].tex);
-        mask[1 - maskSrc].bind();
-        drawQuad();
-        maskSrc = 1 - maskSrc;
-    }
-    GLuint maskTex = mask[maskSrc].tex;
+    texture(0, mask[maskSource].tex);
+    mask[1 - maskSource].bind();
+    drawQuad();
+    const int expandedMaskSource = 1 - maskSource;
+    glDebug("mask expansion", "end");
+    return expandedMaskSource;
+}
 
+/**********************************************************************************
+ *   Function Name  : renderSeedPass
+ *   Purpose : Initialize the signed distance field and draw the mesh seed.
+ *
+ **********************************************************************************/
+static void renderSeedPass(const M4 &viewProj)
+{
+    glDebug("seed", "beginning");
     field[0].bind();
     glEnable(GL_DEPTH_TEST);
     glDepthFunc(GL_LESS);
@@ -1392,59 +1428,117 @@ static void render(float time)
     drawQuad();
     glEnable(GL_DEPTH_TEST);
     glUseProgram(seedProgram);
-    setViewUniforms(seedProgram, vp);
+    setViewUniforms(seedProgram, viewProj);
     u1i(seedProgram, "negative", -1);
     drawMesh();
+    glDebug("seed", "end");
+}
 
-    int src = 0, step = std::min(std::max(width, height), (int)thickness);
+/**********************************************************************************
+ *   Function Name  : jumpFloodPass
+ *   Purpose : Propagate nearest signed-distance seeds across ping-pong FBOs.
+ *
+ **********************************************************************************/
+static int jumpFloodPass(GLuint maskTexture)
+{
+    glDebug("jump flood", "beginning");
+    int source = 0;
+    int step = std::min(std::max(width, height), (int)thickness);
     glDisable(GL_DEPTH_TEST);
     glUseProgram(jfaProgram);
     u1i(jfaProgram, "source", 0);
     u1i(jfaProgram, "mask", 1);
     for (;;)
     {
+        glDebug("jump flood iteration", "beginning");
         u1i(jfaProgram, "step", step);
-        texture(0, field[src].tex);
-        texture(1, maskTex);
-        field[1 - src].bind();
+        texture(0, field[source].tex);
+        texture(1, maskTexture);
+        field[1 - source].bind();
         drawQuad();
-        src = 1 - src;
+        glDebug("jump flood iteration", "end");
+        source = 1 - source;
         if (step <= 1)
             break;
         step = (int)std::ceil(step * .5f);
     }
+    glDebug("jump flood", "end");
+    return source;
+}
 
+/**********************************************************************************
+ *   Function Name  : renderEffectPass
+ *   Purpose : Composite the selected distance-field effect over the scene FBO.
+ *
+ **********************************************************************************/
+static void renderEffectPass(float time, GLuint maskTexture, int fieldSource, bool useFbo)
+{
+    glDebug("effect", "beginning");
     if (useFbo)
         multisampleOutput.bind();
     else
-    {
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-        glViewport(0, 0, width, height);
-    }
+        presentationTarget.bind();
+    glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
     glUseProgram(effectProgram);
-    texture(0, field[src].tex);
-    texture(1, maskTex);
+    texture(0, field[fieldSource].tex);
+    texture(1, maskTexture);
     u1i(effectProgram, "map", 0);
     u1i(effectProgram, "mask", 1);
     u1f(effectProgram, "time", time);
     u1f(effectProgram, "thickness", thickness);
     u1i(effectProgram, "mode", mode);
     u1i(effectProgram, "inside", inside ? -1 : 1);
-    const float *c = colors[colorIndex];
-    glUniform3f(loc(effectProgram, "color"), c[0], c[1], c[2]);
+    const float *color = colors[colorIndex];
+    glUniform3f(loc(effectProgram, "color"), color[0], color[1], color[2]);
     drawQuad();
     glDisable(GL_BLEND);
     glActiveTexture(GL_TEXTURE0);
-    if (useFbo)
-    {
-        glBindFramebuffer(GL_READ_FRAMEBUFFER, multisampleOutput.fbo);
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
-        glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT,
-                          GL_NEAREST);
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    }
+    glDebug("effect", "end");
+}
+
+/**********************************************************************************
+ *   Function Name  : resolvePass
+ *   Purpose : Resolve multisample color into the single-sample presentation FBO.
+ *
+ **********************************************************************************/
+static void resolvePass()
+{
+    if (!multisampleOutput.available() || disableFsaa)
+        return;
+    glDebug("resolve", "beginning");
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, multisampleOutput.fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, presentationTarget.fbo);
+    glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, presentationTarget.fbo);
+    glDebug("resolve", "end");
+}
+
+/**********************************************************************************
+ *   Function Name  : render
+ *   Purpose : Execute the scene, mask, seed, jump-flood, effect, and resolve passes.
+ *
+ **********************************************************************************/
+static void render(float time)
+{
+    drawCalls = 0;
+    V3 eye = {cameraDistance * std::cos(pitch) * std::sin(yaw), cameraDistance * std::sin(pitch),
+              cameraDistance * std::cos(pitch) * std::cos(yaw)};
+    M4 viewProj = multiply(perspective(45, (float)width / height, .25f, 20),
+                           lookAt(eye, {0, 0, 0}, {0, 1, 0}));
+    V3 light = norm(eye + V3{.3f, .8f, 0});
+    const bool useFbo = !disableFsaa && multisampleOutput.available();
+    renderScenePass(viewProj, light, useFbo);
+    renderMaskPass(viewProj);
+    int maskSource = 0;
+    for (int i = 0; i < 4; i++)
+        maskSource = expandMaskPass(maskSource);
+    const GLuint maskTexture = mask[maskSource].tex;
+    renderSeedPass(viewProj);
+    const int fieldSource = jumpFloodPass(maskTexture);
+    renderEffectPass(time, maskTexture, fieldSource, useFbo);
+    resolvePass();
 }
 
 /**********************************************************************************
@@ -1454,6 +1548,9 @@ static void render(float time)
  **********************************************************************************/
 static void renderUi(float frameMs)
 {
+    glDebug("UI", "beginning");
+    presentationTarget.bind();
+    glDisable(GL_DEPTH_TEST);
     ImGui_ImplOpenGL3_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
@@ -1524,6 +1621,22 @@ static void renderUi(float frameMs)
     ImGui::End();
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+    glDebug("UI", "end");
+}
+
+/**********************************************************************************
+ *   Function Name  : presentPass
+ *   Purpose : Blit the completed presentation FBO to the window back buffer.
+ *
+ **********************************************************************************/
+static void presentPass()
+{
+    glDebug("presentation", "beginning");
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, presentationTarget.fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+    glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDebug("presentation", "end");
 }
 
 /**********************************************************************************
@@ -1748,6 +1861,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
     GLint maxSamples = 0;
     glGetIntegerv(GL_MAX_SAMPLES, &maxSamples);
     multisampleOutput.init(maxSamples > 1 ? std::min(4, (int)maxSamples) : 0);
+    presentationTarget.init(GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, true);
     const std::string modelVS = loadShaderSource(L"model.vert");
     const std::string litFS = loadShaderSource(L"lit.frag");
     const std::string maskFS = loadShaderSource(L"mask.frag");
@@ -1811,6 +1925,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int)
             yaw += (float)(dt * .001 * 2 * 3.14159265 / 60);
         render((float)(now.QuadPart * 1000.0 / freq.QuadPart));
         renderUi((float)avgMs);
+        presentPass();
         SwapBuffers(dc);
         titleTime += dt;
         if (titleTime > 250 && avgMs > 0)
