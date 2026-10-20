@@ -13,9 +13,9 @@ environment or image-based-lighting pipeline.
 
 ## Build
 
-Close the solution in Visual Studio first, then run `build.bat` from this directory to delete the
-existing generated `build` directory, regenerate the x64 Visual Studio solution with CMake, and
-build the Debug configuration.
+Run `build.bat` from this directory to delete the existing generated `build` directory, regenerate
+the x64 Visual Studio solution with CMake, and build the Debug configuration. If Windows reports
+that build files are in use, close the solution in Visual Studio and run the script again.
 Alternatively, from a Visual Studio Developer PowerShell:
 
 ```powershell

@@ -1,20 +1,15 @@
 @echo off
 setlocal
 
-set "SOURCE_DIR=%~dp0"
+set "SOURCE_DIR=%~dp0."
 set "BUILD_DIR=%~dp0build"
-
-if exist "%BUILD_DIR%\.vs\" (
-    echo Close the GLFromWebGL solution in Visual Studio before running this clean build.
-    echo Visual Studio may lock files inside the generated build directory.
-    exit /b 1
-)
 
 if exist "%BUILD_DIR%" (
     echo Removing existing build directory: "%BUILD_DIR%"
-    rmdir /s /q "%BUILD_DIR%"
+    rmdir /s /q "%BUILD_DIR%" 2>nul
     if exist "%BUILD_DIR%" (
-        echo Failed to remove the existing build directory.
+        echo Could not remove the build directory. Close the GLFromWebGL solution in Visual Studio
+        echo and check that no other process is using files under "%BUILD_DIR%".
         exit /b 1
     )
 )
