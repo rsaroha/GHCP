@@ -8,6 +8,24 @@ endif()
 add_executable(GLFromWebGL WIN32 main.cpp stb_image_impl.cpp)
 target_compile_features(GLFromWebGL PRIVATE cxx_std_17)
 target_compile_definitions(GLFromWebGL PRIVATE UNICODE _UNICODE)
+set(SHADER_FILES
+    shaders/model.vert
+    shaders/lit.frag
+    shaders/mask.frag
+    shaders/seed.frag
+    shaders/quad.vert
+    shaders/seed_quad.frag
+    shaders/expand.frag
+    shaders/jfa.frag
+    shaders/effect.frag
+)
+target_sources(GLFromWebGL PRIVATE ${SHADER_FILES})
+add_custom_command(TARGET GLFromWebGL POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/shaders"
+        "$<TARGET_FILE_DIR:GLFromWebGL>/shaders"
+    VERBATIM
+)
 set(IMGUI_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party/imgui")
 set(THIRD_PARTY_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../third_party")
 target_sources(GLFromWebGL PRIVATE

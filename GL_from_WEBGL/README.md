@@ -16,16 +16,20 @@ environment or image-based-lighting pipeline.
 From a Visual Studio Developer PowerShell:
 
 ```powershell
-cmake -S . -B build
-cmake --build build --config Release
+cmake -S . -B build -A x64
+cmake --build build --config Debug
 ```
 
 The build uses the repository's `third_party/imgui` sources for Dear ImGui and its Win32/OpenGL3
-backends. The application creates its own OpenGL 3.3 core context.
+backends. GLSL programs are stored in `shaders/` and copied beside the executable during the build.
+The application creates its own OpenGL 3.3 core context and uses a multisample framebuffer backed
+by color and depth textures by default. The ImGui panel can disable FSAA; all framebuffer
+attachments use textures.
 
 ## Controls
 
-- Drag with the left mouse button to orbit; use the wheel to zoom.
+- Drag with the left mouse button to orbit, right-drag to pan, and use the wheel to zoom. Pan and
+  zoom are screen-space transforms that preserve the camera perspective.
 - `M` / `Shift+M`: next / previous effect (Mask, Coordinate, SDF, Outline, Glow, Pulse, Halftone, Rings).
 - `I`: toggle inside/outside effect.
 - Up/Down: change thickness; hold Shift for larger steps.
@@ -33,4 +37,5 @@ backends. The application creates its own OpenGL 3.3 core context.
 - Space: toggle auto-rotation; Esc: exit.
 
 Use the ImGui panel to load an OBJ/glTF/GLB, choose the effect mode, change inside/outside,
-thickness, color, and auto-rotation.
+thickness, color, and auto-rotation, or disable FSAA completely (when supported by the graphics
+driver).
